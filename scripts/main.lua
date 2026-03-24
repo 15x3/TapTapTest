@@ -3,21 +3,28 @@
 -- 功能: 像素风手机 UI 界面，居中显示，背景自适应延展
 -- UI 系统: urhox-libs/UI (Yoga Flexbox + NanoVG)
 -- 字体: zpix 像素字体
+-- 支持: 钉钉、微信应用打开与浏览
 -- ============================================================================
 
 local UI = require("urhox-libs/UI")
+local DingtalkPages = require("DingtalkPages")
 
 -- ============================================================================
 -- 全局变量
 -- ============================================================================
 local uiRoot_ = nil
+---@type string|nil
+local currentApp_ = nil  -- nil = 主屏幕, "dingtalk"/"wechat" = 应用内
+local phoneFrame_ = nil
+local screenContainer_ = nil  -- 屏幕内容容器（用于切换主屏/应用）
+local dtContentContainer_ = nil  -- 钉钉内容区容器（用于切换子页面）
 
 -- 手机配置
 local PHONE = {
     WIDTH = 380,
     HEIGHT = 800,
-    BORDER_RADIUS = 16,          -- 像素风：减小圆角
-    BORDER_WIDTH = 3,            -- 像素风：加粗边框
+    BORDER_RADIUS = 16,
+    BORDER_WIDTH = 3,
     STATUS_BAR_HEIGHT = 32,
 }
 
@@ -33,9 +40,9 @@ local COLORS = {
     -- 屏幕内容
     SCREEN_BG = { 22, 22, 34, 255 },
 
-    -- 应用图标 - 像素风经典配色
-    APP_BLUE   = { 80, 120, 220, 255 },
-    APP_GREEN  = { 60, 180, 90, 255 },
+    -- 应用图标颜色
+    APP_DINGTALK = { 48, 118, 255, 255 },   -- 钉钉蓝
+    APP_WECHAT   = { 7, 193, 96, 255 },     -- 微信绿
     APP_RED    = { 220, 70, 70, 255 },
     APP_YELLOW = { 230, 190, 50, 255 },
     APP_PURPLE = { 150, 80, 200, 255 },
@@ -51,16 +58,23 @@ local COLORS = {
 
     -- 像素装饰色
     PIXEL_ACCENT = { 100, 220, 160, 255 },
+
+    -- 浅色主题（应用内使用）
+    WHITE = { 255, 255, 255, 255 },
+    LIGHT_BG = { 237, 237, 237, 255 },
+    LIGHT_TEXT = { 25, 25, 25, 255 },
+    LIGHT_TEXT_SEC = { 128, 128, 128, 255 },
+    LIGHT_BORDER = { 225, 225, 225, 255 },
 }
 
--- 应用数据 - 用文字符号代替 emoji，更像素风
+-- 应用数据
 local APPS = {
-    { name = "相册",  color = COLORS.APP_BLUE,   symbol = "PIC" },
-    { name = "消息",  color = COLORS.APP_GREEN,  symbol = "MSG" },
-    { name = "设置",  color = COLORS.APP_RED,    symbol = "SET" },
-    { name = "音乐",  color = COLORS.APP_YELLOW, symbol = "BGM" },
-    { name = "商店",  color = COLORS.APP_PURPLE, symbol = "SHP" },
-    { name = "地图",  color = COLORS.APP_CYAN,   symbol = "MAP" },
+    { name = "钉钉", color = COLORS.APP_DINGTALK, symbol = "DD",  appId = "dingtalk" },
+    { name = "微信", color = COLORS.APP_WECHAT,   symbol = "WX",  appId = "wechat" },
+    { name = "设置", color = COLORS.APP_RED,       symbol = "SET", appId = nil },
+    { name = "音乐", color = COLORS.APP_YELLOW,    symbol = "BGM", appId = nil },
+    { name = "商店", color = COLORS.APP_PURPLE,    symbol = "SHP", appId = nil },
+    { name = "地图", color = COLORS.APP_CYAN,      symbol = "MAP", appId = nil },
 }
 
 -- ============================================================================
@@ -101,6 +115,50 @@ function SubscribeToEvents()
 end
 
 -- ============================================================================
+-- 导航系统
+-- ============================================================================
+
+--- 打开应用
+function OpenApp(appId)
+    if not screenContainer_ then return end
+    currentApp_ = appId
+    screenContainer_:ClearChildren()
+
+    if appId == "dingtalk" then
+        screenContainer_:AddChild(CreateDingtalkApp())
+    elseif appId == "wechat" then
+        screenContainer_:AddChild(CreateWechatApp())
+    end
+
+    -- 更新状态栏标题
+    local titleLabel = uiRoot_:FindById("statusTitle")
+    if titleLabel then
+        if appId == "dingtalk" then
+            titleLabel:SetText("钉钉")
+        elseif appId == "wechat" then
+            titleLabel:SetText("微信")
+        end
+    end
+
+    print(">>> 打开应用: " .. appId)
+end
+
+--- 返回主屏幕
+function GoHome()
+    if not screenContainer_ then return end
+    currentApp_ = nil
+    screenContainer_:ClearChildren()
+    screenContainer_:AddChild(CreateHomeContent())
+
+    local titleLabel = uiRoot_:FindById("statusTitle")
+    if titleLabel then
+        titleLabel:SetText("手机界面")
+    end
+
+    print(">>> 返回主屏幕")
+end
+
+-- ============================================================================
 -- UI 构建
 -- ============================================================================
 
@@ -113,9 +171,7 @@ function CreateUI()
         alignItems = "center",
         backgroundColor = COLORS.BG,
         children = {
-            -- 背景像素网格装饰
             CreatePixelBgDecor(),
-            -- 手机外壳
             CreatePhoneFrame(),
         },
     }
@@ -130,7 +186,6 @@ function CreatePixelBgDecor()
         top = 0, left = 0, right = 0, bottom = 0,
         pointerEvents = "none",
         children = {
-            -- 左上角像素装饰
             UI.Label {
                 text = "[ PIXEL OS ]",
                 fontSize = 10,
@@ -138,9 +193,8 @@ function CreatePixelBgDecor()
                 position = "absolute",
                 top = 12, left = 16,
             },
-            -- 右下角像素装饰
             UI.Label {
-                text = "v1.0",
+                text = "v2.0",
                 fontSize = 10,
                 fontColor = { 60, 60, 80, 120 },
                 position = "absolute",
@@ -152,7 +206,19 @@ end
 
 --- 创建手机外壳
 function CreatePhoneFrame()
-    return UI.Panel {
+    screenContainer_ = UI.Panel {
+        id = "screenContainer",
+        width = "100%",
+        flexGrow = 1,
+        flexBasis = 0,
+        flexDirection = "column",
+        overflow = "hidden",
+        children = {
+            CreateHomeContent(),
+        },
+    }
+
+    phoneFrame_ = UI.Panel {
         id = "phoneFrame",
         height = "90%",
         maxHeight = PHONE.HEIGHT,
@@ -167,19 +233,17 @@ function CreatePhoneFrame()
             { x = 0, y = 6, blur = 30, spread = 0, color = { 0, 0, 0, 150 } },
         },
         children = {
-            -- 听筒区域（紧贴圆角内部，无突出）
             CreateEarpieceBar(),
-            -- 状态栏
             CreateStatusBar(),
-            -- 屏幕主内容
-            CreateScreenContent(),
-            -- 底部 Dock
+            screenContainer_,
             CreateDockBar(),
         },
     }
+
+    return phoneFrame_
 end
 
---- 听筒区域（取代刘海，紧贴顶部圆角内侧）
+--- 听筒区域
 function CreateEarpieceBar()
     return UI.Panel {
         width = "100%",
@@ -188,12 +252,11 @@ function CreateEarpieceBar()
         justifyContent = "center",
         alignItems = "center",
         children = {
-            -- 听筒像素块
             UI.Panel {
                 width = 50,
                 height = 4,
                 backgroundColor = { 50, 50, 65, 255 },
-                borderRadius = 0,    -- 像素风：无圆角
+                borderRadius = 0,
             },
         },
     }
@@ -210,13 +273,12 @@ function CreateStatusBar()
         alignItems = "center",
         paddingHorizontal = 16,
         children = {
-            -- 左侧
             UI.Label {
+                id = "statusTitle",
                 text = "手机界面",
                 fontSize = 12,
                 fontColor = COLORS.TEXT_WHITE,
             },
-            -- 右侧：时间 + 电量
             UI.Panel {
                 flexDirection = "row",
                 alignItems = "center",
@@ -228,7 +290,6 @@ function CreateStatusBar()
                         fontSize = 12,
                         fontColor = COLORS.TEXT_WHITE,
                     },
-                    -- 像素风电池图标
                     CreatePixelBattery(),
                 },
             },
@@ -262,12 +323,51 @@ function CreatePixelBattery()
     }
 end
 
---- 屏幕主内容
-function CreateScreenContent()
+--- 底部 Dock 栏（点击返回主屏）
+function CreateDockBar()
     return UI.Panel {
         width = "100%",
-        flexGrow = 1,
-        flexBasis = 0,
+        height = 50,
+        backgroundColor = COLORS.DOCK_BG,
+        justifyContent = "center",
+        alignItems = "center",
+        children = {
+            UI.Button {
+                width = 80,
+                height = 30,
+                backgroundColor = { 0, 0, 0, 0 },
+                hoverBackgroundColor = { 255, 255, 255, 20 },
+                pressedBackgroundColor = { 255, 255, 255, 40 },
+                borderRadius = 4,
+                justifyContent = "center",
+                alignItems = "center",
+                onClick = function(self)
+                    if currentApp_ then
+                        GoHome()
+                    end
+                end,
+                children = {
+                    UI.Panel {
+                        width = 36,
+                        height = 6,
+                        backgroundColor = COLORS.TEXT_LIGHT,
+                        borderRadius = 0,
+                        pointerEvents = "none",
+                    },
+                },
+            },
+        },
+    }
+end
+
+-- ============================================================================
+-- 主屏幕内容
+-- ============================================================================
+
+function CreateHomeContent()
+    return UI.Panel {
+        width = "100%",
+        height = "100%",
         backgroundColor = COLORS.SCREEN_BG,
         flexDirection = "column",
         justifyContent = "flex-start",
@@ -276,11 +376,8 @@ function CreateScreenContent()
         paddingHorizontal = 16,
         gap = 20,
         children = {
-            -- 大时钟
             CreatePixelClock(),
-            -- 分隔线
             CreatePixelDivider(),
-            -- 应用图标网格 (2行3列)
             CreateAppGrid(),
         },
     }
@@ -349,12 +446,11 @@ function CreatePixelAppIcon(app)
         alignItems = "center",
         gap = 6,
         children = {
-            -- 图标方块（像素风：无圆角，粗边框）
             UI.Button {
                 width = 56,
                 height = 56,
                 backgroundColor = app.color,
-                borderRadius = 4,          -- 微圆角，保持像素感
+                borderRadius = 4,
                 borderWidth = 2,
                 borderColor = { 255, 255, 255, 40 },
                 justifyContent = "center",
@@ -363,10 +459,13 @@ function CreatePixelAppIcon(app)
                 text = app.symbol,
                 fontSize = 12,
                 onClick = function(self)
-                    print(">>> " .. app.name)
+                    if app.appId then
+                        OpenApp(app.appId)
+                    else
+                        print(">>> " .. app.name .. " (未实现)")
+                    end
                 end,
             },
-            -- 应用名
             UI.Label {
                 text = app.name,
                 fontSize = 10,
@@ -376,21 +475,690 @@ function CreatePixelAppIcon(app)
     }
 end
 
---- 底部 Dock 栏
-function CreateDockBar()
+-- ============================================================================
+-- 钉钉应用界面（浅色主题）
+-- ============================================================================
+
+-- 钉钉颜色（模块级复用）
+local DT = {
+    blue    = { 48, 118, 255, 255 },
+    bg      = { 245, 245, 245, 255 },
+    white   = { 255, 255, 255, 255 },
+    text    = { 25, 25, 25, 255 },
+    textSec = { 153, 153, 153, 255 },
+    border  = { 235, 235, 235, 255 },
+}
+
+-- 钉钉子页面导航
+function DingtalkNavigateTo(page, chatData)
+    if not dtContentContainer_ then return end
+    dtContentContainer_:ClearChildren()
+
+    local backToMain = function() DingtalkNavigateTo("main") end
+
+    if page == "main" then
+        dtContentContainer_:AddChild(CreateDingtalkMainContent())
+    elseif page == "calendar" then
+        dtContentContainer_:AddChild(DingtalkPages.CreateCalendarPage(backToMain))
+    elseif page == "todo" then
+        dtContentContainer_:AddChild(DingtalkPages.CreateTodoPage(backToMain))
+    elseif page == "ding" then
+        dtContentContainer_:AddChild(DingtalkPages.CreateDingPage(backToMain))
+    elseif page == "chat" and chatData then
+        dtContentContainer_:AddChild(DingtalkPages.CreateChatPage(chatData.name, chatData.iconBg, backToMain))
+    end
+end
+
+function CreateDingtalkApp()
+    -- 底部导航项
+    local tabs = {
+        { label = "消息", icon = "MSG", active = true, badge = 95 },
+        { label = "鹏山工贸", icon = "OA", active = false, badge = 0 },
+        { label = "通讯录", icon = "DIR", active = false, badge = 0 },
+        { label = "我的", icon = "ME", active = false, badge = 0 },
+        { label = "更多", icon = "...", active = false, badge = 0 },
+    }
+
+    local tabItems = {}
+    for _, tab in ipairs(tabs) do
+        tabItems[#tabItems + 1] = CreateDingtalkTab(tab, DT.blue, DT.textSec)
+    end
+
+    -- 内容容器
+    dtContentContainer_ = UI.Panel {
+        width = "100%",
+        flexGrow = 1,
+        flexBasis = 0,
+        flexDirection = "column",
+        overflow = "hidden",
+        children = {
+            CreateDingtalkMainContent(),
+        },
+    }
+
     return UI.Panel {
         width = "100%",
-        height = 50,
-        backgroundColor = COLORS.DOCK_BG,
-        justifyContent = "center",
-        alignItems = "center",
+        height = "100%",
+        backgroundColor = DT.bg,
+        flexDirection = "column",
         children = {
-            -- 像素风主页按钮：方块
+            dtContentContainer_,
+            -- 底部导航栏（始终显示）
             UI.Panel {
-                width = 36,
-                height = 6,
-                backgroundColor = COLORS.TEXT_LIGHT,
-                borderRadius = 0,    -- 像素风：方角
+                width = "100%",
+                height = 50,
+                backgroundColor = DT.white,
+                flexDirection = "row",
+                alignItems = "center",
+                justifyContent = "space-around",
+                borderTopWidth = 1,
+                borderTopColor = DT.border,
+                children = tabItems,
+            },
+        },
+    }
+end
+
+--- 钉钉主页面内容（搜索栏 + 快捷栏 + 会话列表）
+function CreateDingtalkMainContent()
+    -- 聊天列表数据
+    local chatList = {
+        { name = "鹏山工贸学校通知群", tag = "内部群", tagColor = DT.blue, time = "下午2:46",
+          msg = "王丹妮: [倡议书] 关于...", badge = 1, iconBg = { 48, 118, 255, 255 }, iconText = "工贸\n通知" },
+        { name = "工贸班主任通知群", tag = "内部群", tagColor = DT.blue, time = "上午9:24",
+          msg = "邓星妹: 通知 学校定于明天...", badge = 0, iconBg = { 220, 60, 60, 255 }, iconText = "班主任\n通知" },
+        { name = "我 (杨清)", tag = "", tagColor = nil, time = "昨天",
+          msg = "发到聊天里的文件已保存至...", badge = 0, iconBg = { 100, 100, 120, 255 }, iconText = "我" },
+        { name = "24级工业机器人技术...", tag = "师生", tagColor = { 255, 140, 0, 255 }, time = "3月20日",
+          msg = "[图片]", badge = 0, iconBg = { 80, 120, 200, 255 }, iconText = "师生" },
+        { name = "24级工业机器人技术...", tag = "家校", tagColor = { 60, 180, 80, 255 }, time = "3月20日",
+          msg = "[图片]", badge = 0, iconBg = { 80, 120, 200, 255 }, iconText = "家校" },
+        { name = "工会", tag = "家校", tagColor = { 60, 180, 80, 255 }, time = "3月18日",
+          msg = "古禹: 保利郦城有送一些本周末免费...", badge = 0, iconBg = { 100, 130, 200, 255 }, iconText = "工会" },
+        { name = "测试师生群", tag = "师生", tagColor = { 255, 140, 0, 255 }, time = "2025/9/25",
+          msg = "杨清开启了群快捷栏", badge = 0, iconBg = { 200, 80, 200, 255 }, iconText = "测试" },
+    }
+
+    local chatItems = {}
+    for _, chat in ipairs(chatList) do
+        chatItems[#chatItems + 1] = CreateDingtalkChatItem(chat)
+    end
+
+    -- 快捷栏按钮创建器
+    local function QuickBtn(label, badgeNum, onClick)
+        local children = {
+            UI.Label { text = label, fontSize = 11, fontColor = DT.textSec, pointerEvents = "none" },
+        }
+        if badgeNum and badgeNum > 0 then
+            children[#children + 1] = UI.Panel {
+                width = 14, height = 14,
+                backgroundColor = { 250, 80, 80, 255 },
+                borderRadius = 7,
+                justifyContent = "center",
+                alignItems = "center",
+                marginLeft = 2,
+                pointerEvents = "none",
+                children = {
+                    UI.Label { text = tostring(badgeNum), fontSize = 8, fontColor = { 255, 255, 255, 255 } },
+                },
+            }
+        end
+        return UI.Button {
+            height = 30,
+            paddingHorizontal = 8,
+            backgroundColor = { 0, 0, 0, 0 },
+            hoverBackgroundColor = { 0, 0, 0, 10 },
+            pressedBackgroundColor = { 0, 0, 0, 20 },
+            borderRadius = 4,
+            flexDirection = "row",
+            alignItems = "center",
+            onClick = function(self) onClick() end,
+            children = children,
+        }
+    end
+
+    return UI.Panel {
+        width = "100%",
+        height = "100%",
+        backgroundColor = DT.white,
+        flexDirection = "column",
+        children = {
+            -- 顶部导航栏
+            UI.Panel {
+                width = "100%",
+                height = 44,
+                backgroundColor = DT.white,
+                flexDirection = "row",
+                alignItems = "center",
+                justifyContent = "space-between",
+                paddingHorizontal = 12,
+                borderBottomWidth = 1,
+                borderBottomColor = DT.border,
+                children = {
+                    UI.Button {
+                        width = 30, height = 30,
+                        backgroundColor = { 0, 0, 0, 0 },
+                        hoverBackgroundColor = { 0, 0, 0, 15 },
+                        pressedBackgroundColor = { 0, 0, 0, 30 },
+                        borderRadius = 4,
+                        text = "<",
+                        textColor = DT.text,
+                        fontSize = 14,
+                        onClick = function(self) GoHome() end,
+                    },
+                    UI.Panel {
+                        flexGrow = 1, flexBasis = 0, flexShrink = 1,
+                        height = 30,
+                        backgroundColor = { 242, 242, 242, 255 },
+                        borderRadius = 15,
+                        marginHorizontal = 8,
+                        flexDirection = "row",
+                        alignItems = "center",
+                        paddingHorizontal = 10,
+                        children = {
+                            UI.Label { text = "搜索", fontSize = 11, fontColor = { 180, 180, 180, 255 } },
+                        },
+                    },
+                    UI.Panel {
+                        width = 26, height = 26,
+                        backgroundColor = DT.blue,
+                        borderRadius = 13,
+                        justifyContent = "center",
+                        alignItems = "center",
+                        children = {
+                            UI.Label { text = "+", fontSize = 14, fontColor = DT.white },
+                        },
+                    },
+                },
+            },
+
+            -- 功能快捷栏（日历、待办、DING 可点击）
+            UI.Panel {
+                width = "100%",
+                height = 36,
+                backgroundColor = DT.white,
+                flexDirection = "row",
+                alignItems = "center",
+                paddingHorizontal = 8,
+                gap = 4,
+                borderBottomWidth = 1,
+                borderBottomColor = DT.border,
+                children = {
+                    QuickBtn("日历", nil, function() DingtalkNavigateTo("calendar") end),
+                    QuickBtn("待办", DingtalkPages.GetPendingTodoCount(), function() DingtalkNavigateTo("todo") end),
+                    QuickBtn("DING", DingtalkPages.GetUnreadDingCount(), function() DingtalkNavigateTo("ding") end),
+                },
+            },
+
+            -- 聊天列表（可滚动）
+            UI.ScrollView {
+                width = "100%",
+                flexGrow = 1,
+                flexBasis = 0,
+                backgroundColor = DT.white,
+                children = {
+                    UI.Panel {
+                        width = "100%",
+                        flexDirection = "column",
+                        children = chatItems,
+                    },
+                },
+            },
+
+
+        },
+    }
+end
+
+--- 钉钉聊天列表项（可点击打开聊天详情）
+function CreateDingtalkChatItem(chat)
+    local nameChildren = {
+        UI.Label {
+            text = chat.name,
+            fontSize = 12,
+            fontColor = DT.text,
+            maxLines = 1,
+            flexShrink = 1,
+        },
+    }
+    if chat.tag and chat.tag ~= "" then
+        nameChildren[#nameChildren + 1] = UI.Panel {
+            paddingHorizontal = 4,
+            paddingVertical = 1,
+            backgroundColor = { chat.tagColor[1], chat.tagColor[2], chat.tagColor[3], 30 },
+            borderRadius = 2,
+            marginLeft = 4,
+            children = {
+                UI.Label { text = chat.tag, fontSize = 8, fontColor = chat.tagColor },
+            },
+        }
+    end
+
+    local badgeWidget = nil
+    if chat.badge and chat.badge > 0 then
+        badgeWidget = UI.Panel {
+            position = "absolute",
+            top = -2, right = -2,
+            width = 14, height = 14,
+            backgroundColor = { 255, 60, 60, 255 },
+            borderRadius = 7,
+            justifyContent = "center",
+            alignItems = "center",
+            children = {
+                UI.Label { text = tostring(chat.badge), fontSize = 8, fontColor = { 255, 255, 255, 255 } },
+            },
+        }
+    end
+
+    local iconChildren = {
+        UI.Label {
+            text = chat.iconText,
+            fontSize = 8,
+            fontColor = { 255, 255, 255, 255 },
+            textAlign = "center",
+        },
+    }
+    if badgeWidget then
+        iconChildren[#iconChildren + 1] = badgeWidget
+    end
+
+    return UI.Button {
+        width = "100%",
+        height = 64,
+        backgroundColor = { 255, 255, 255, 255 },
+        hoverBackgroundColor = { 245, 245, 245, 255 },
+        pressedBackgroundColor = { 235, 235, 235, 255 },
+        borderRadius = 0,
+        flexDirection = "row",
+        alignItems = "center",
+        paddingHorizontal = 12,
+        gap = 10,
+        borderBottomWidth = 1,
+        borderBottomColor = { 245, 245, 245, 255 },
+        onClick = function(self)
+            DingtalkNavigateTo("chat", chat)
+        end,
+        children = {
+            -- 头像
+            UI.Panel {
+                width = 44, height = 44,
+                backgroundColor = chat.iconBg,
+                borderRadius = 8,
+                justifyContent = "center",
+                alignItems = "center",
+                pointerEvents = "none",
+                children = iconChildren,
+            },
+            -- 内容
+            UI.Panel {
+                flexGrow = 1, flexBasis = 0, flexShrink = 1,
+                flexDirection = "column",
+                justifyContent = "center",
+                gap = 4,
+                pointerEvents = "none",
+                children = {
+                    UI.Panel {
+                        flexDirection = "row",
+                        justifyContent = "space-between",
+                        alignItems = "center",
+                        children = {
+                            UI.Panel {
+                                flexDirection = "row",
+                                alignItems = "center",
+                                flexShrink = 1,
+                                children = nameChildren,
+                            },
+                            UI.Label { text = chat.time, fontSize = 9, fontColor = DT.textSec },
+                        },
+                    },
+                    UI.Label {
+                        text = chat.msg,
+                        fontSize = 10,
+                        fontColor = DT.textSec,
+                        maxLines = 1,
+                    },
+                },
+            },
+        },
+    }
+end
+
+--- 钉钉底部导航 tab
+function CreateDingtalkTab(tab, dtBlue, dtTextSec)
+    local tabColor = tab.active and dtBlue or dtTextSec
+    local iconChildren = {
+        UI.Label {
+            text = tab.icon,
+            fontSize = 10,
+            fontColor = tabColor,
+            textAlign = "center",
+        },
+    }
+
+    if tab.badge and tab.badge > 0 then
+        iconChildren[#iconChildren + 1] = UI.Panel {
+            position = "absolute",
+            top = -4, right = -8,
+            height = 13, minWidth = 13,
+            paddingHorizontal = 3,
+            backgroundColor = { 255, 60, 60, 255 },
+            borderRadius = 7,
+            justifyContent = "center",
+            alignItems = "center",
+            children = {
+                UI.Label { text = tostring(tab.badge), fontSize = 8, fontColor = { 255, 255, 255, 255 } },
+            },
+        }
+    end
+
+    return UI.Panel {
+        alignItems = "center",
+        gap = 2,
+        children = {
+            UI.Panel {
+                width = 24, height = 20,
+                justifyContent = "center",
+                alignItems = "center",
+                children = iconChildren,
+            },
+            UI.Label { text = tab.label, fontSize = 9, fontColor = tabColor },
+        },
+    }
+end
+
+-- ============================================================================
+-- 微信应用界面（浅色主题）
+-- ============================================================================
+
+function CreateWechatApp()
+    -- 微信颜色
+    local wxGreen = { 7, 193, 96, 255 }
+    local wxDarkGreen = { 54, 132, 86, 255 }
+    local wxHeaderBg = { 237, 237, 237, 255 }
+    local wxBg = { 237, 237, 237, 255 }
+    local wxWhite = { 255, 255, 255, 255 }
+    local wxText = { 25, 25, 25, 255 }
+    local wxTextSec = { 153, 153, 153, 255 }
+    local wxBorder = { 225, 225, 225, 255 }
+
+    -- 模拟聊天列表数据
+    local chatList = {
+        { name = "杨哔哔家", time = "周四",
+          msg = "老妈: [视频] 路边遇到好看的花花...", badge = 0, iconBg = { 180, 130, 170, 255 }, iconText = "家" },
+        { name = "15.5T、陈通、张连其", time = "2025/12/12",
+          msg = "https://mp.weixin.qq.com/s/GJn...", badge = 0, iconBg = { 100, 120, 140, 255 }, iconText = "群" },
+        { name = "腾讯新闻", time = "下午3:29",
+          msg = "[72条] 重庆大学实验室爆炸致1死3伤", badge = 0, iconBg = { 40, 120, 200, 255 }, iconText = "新闻" },
+        { name = "坐以待币", time = "下午3:12",
+          msg = "侯一秀: 垃圾也不行吗", badge = 1, iconBg = { 80, 80, 100, 255 }, iconText = "$" },
+        { name = "亚博-树莓派5/4B/3B...", time = "下午3:11",
+          msg = "[17条] 我哩个派", badge = 0, iconBg = { 200, 80, 80, 255 }, iconText = "Pi" },
+        { name = "14  王泊松", time = "下午3:10",
+          msg = "[动画表情]", badge = 2, iconBg = { 60, 140, 180, 255 }, iconText = "王" },
+        { name = "公众号", time = "下午3:02",
+          msg = "浙江教师: 湖州市教育局教师招聘公告...", badge = 0, iconBg = { 50, 120, 180, 255 }, iconText = "公" },
+        { name = "#1 工贸班主任", time = "下午2:42",
+          msg = "风中的发卡: 请25服装设计、25美容美体...", badge = 2, iconBg = { 80, 160, 80, 255 }, iconText = "班" },
+        { name = "吴泽钦", time = "下午1:47",
+          msg = "好的, 那我和政教处说一下", badge = 0, iconBg = { 120, 120, 140, 255 }, iconText = "吴" },
+        { name = "朱政", time = "下午1:39",
+          msg = "[语音通话]", badge = 1, iconBg = { 100, 100, 120, 255 }, iconText = "朱" },
+    }
+
+    -- 底部导航项
+    local tabs = {
+        { label = "微信", icon = "WX", active = true, badge = 0, hasRedDot = true },
+        { label = "通讯录", icon = "DIR", active = false, badge = 0, hasRedDot = false },
+        { label = "发现", icon = "EYE", active = false, badge = 0, hasRedDot = true },
+        { label = "我", icon = "ME", active = false, badge = 0, hasRedDot = false },
+    }
+
+    -- 创建聊天项
+    local chatItems = {}
+    for _, chat in ipairs(chatList) do
+        chatItems[#chatItems + 1] = CreateWechatChatItem(chat, wxText, wxTextSec, wxBorder)
+    end
+
+    -- 创建底部 tab
+    local tabItems = {}
+    for _, tab in ipairs(tabs) do
+        tabItems[#tabItems + 1] = CreateWechatTab(tab, wxDarkGreen, wxTextSec)
+    end
+
+    return UI.Panel {
+        width = "100%",
+        height = "100%",
+        backgroundColor = wxBg,
+        flexDirection = "column",
+        children = {
+            -- 顶部标题栏
+            UI.Panel {
+                width = "100%",
+                height = 44,
+                backgroundColor = wxHeaderBg,
+                flexDirection = "row",
+                alignItems = "center",
+                justifyContent = "space-between",
+                paddingHorizontal = 12,
+                borderBottomWidth = 1,
+                borderBottomColor = { 210, 210, 210, 255 },
+                children = {
+                    -- 左侧返回
+                    UI.Button {
+                        width = 30,
+                        height = 30,
+                        backgroundColor = { 0, 0, 0, 0 },
+                        hoverBackgroundColor = { 0, 0, 0, 15 },
+                        pressedBackgroundColor = { 0, 0, 0, 30 },
+                        borderRadius = 4,
+                        text = "<",
+                        textColor = wxText,
+                        fontSize = 14,
+                        onClick = function(self) GoHome() end,
+                    },
+                    -- 标题 微信(121)
+                    UI.Label {
+                        text = "微信(121)",
+                        fontSize = 14,
+                        fontColor = wxText,
+                    },
+                    -- 右侧按钮
+                    UI.Panel {
+                        flexDirection = "row",
+                        gap = 12,
+                        children = {
+                            UI.Panel {
+                                width = 22, height = 22,
+                                borderRadius = 11,
+                                borderWidth = 1,
+                                borderColor = { 80, 80, 80, 255 },
+                                justifyContent = "center",
+                                alignItems = "center",
+                                children = {
+                                    UI.Label { text = "Q", fontSize = 10, fontColor = wxText },
+                                },
+                            },
+                            UI.Panel {
+                                width = 22, height = 22,
+                                justifyContent = "center",
+                                alignItems = "center",
+                                children = {
+                                    UI.Label { text = "+", fontSize = 16, fontColor = wxText },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+
+            -- 聊天列表（可滚动）
+            UI.ScrollView {
+                width = "100%",
+                flexGrow = 1,
+                flexBasis = 0,
+                backgroundColor = wxWhite,
+                children = {
+                    UI.Panel {
+                        width = "100%",
+                        flexDirection = "column",
+                        children = chatItems,
+                    },
+                },
+            },
+
+            -- 底部导航栏
+            UI.Panel {
+                width = "100%",
+                height = 50,
+                backgroundColor = wxHeaderBg,
+                flexDirection = "row",
+                alignItems = "center",
+                justifyContent = "space-around",
+                borderTopWidth = 1,
+                borderTopColor = { 210, 210, 210, 255 },
+                children = tabItems,
+            },
+        },
+    }
+end
+
+--- 微信聊天列表项
+function CreateWechatChatItem(chat, wxText, wxTextSec, wxBorder)
+    local iconChildren = {
+        UI.Label {
+            text = chat.iconText,
+            fontSize = 10,
+            fontColor = { 255, 255, 255, 255 },
+            textAlign = "center",
+        },
+    }
+
+    -- 角标
+    if chat.badge and chat.badge > 0 then
+        iconChildren[#iconChildren + 1] = UI.Panel {
+            position = "absolute",
+            top = -3,
+            right = -3,
+            width = 14,
+            height = 14,
+            backgroundColor = { 250, 80, 80, 255 },
+            borderRadius = 7,
+            justifyContent = "center",
+            alignItems = "center",
+            children = {
+                UI.Label {
+                    text = tostring(chat.badge),
+                    fontSize = 8,
+                    fontColor = { 255, 255, 255, 255 },
+                },
+            },
+        }
+    end
+
+    return UI.Panel {
+        width = "100%",
+        height = 64,
+        flexDirection = "row",
+        alignItems = "center",
+        paddingHorizontal = 12,
+        gap = 10,
+        backgroundColor = { 255, 255, 255, 255 },
+        borderBottomWidth = 1,
+        borderBottomColor = { 240, 240, 240, 255 },
+        children = {
+            -- 头像
+            UI.Panel {
+                width = 44,
+                height = 44,
+                backgroundColor = chat.iconBg,
+                borderRadius = 6,
+                justifyContent = "center",
+                alignItems = "center",
+                children = iconChildren,
+            },
+            -- 内容
+            UI.Panel {
+                flexGrow = 1,
+                flexBasis = 0,
+                flexShrink = 1,
+                flexDirection = "column",
+                justifyContent = "center",
+                gap = 4,
+                children = {
+                    -- 名称行
+                    UI.Panel {
+                        flexDirection = "row",
+                        justifyContent = "space-between",
+                        alignItems = "center",
+                        children = {
+                            UI.Label {
+                                text = chat.name,
+                                fontSize = 13,
+                                fontColor = wxText,
+                                maxLines = 1,
+                                flexShrink = 1,
+                            },
+                            UI.Label {
+                                text = chat.time,
+                                fontSize = 9,
+                                fontColor = wxTextSec,
+                            },
+                        },
+                    },
+                    -- 消息预览
+                    UI.Label {
+                        text = chat.msg,
+                        fontSize = 10,
+                        fontColor = wxTextSec,
+                        maxLines = 1,
+                    },
+                },
+            },
+        },
+    }
+end
+
+--- 微信底部导航 tab
+function CreateWechatTab(tab, wxGreen, wxTextSec)
+    local tabColor = tab.active and wxGreen or wxTextSec
+
+    local iconChildren = {
+        UI.Label {
+            text = tab.icon,
+            fontSize = 10,
+            fontColor = tabColor,
+            textAlign = "center",
+        },
+    }
+
+    -- 小红点
+    if tab.hasRedDot then
+        iconChildren[#iconChildren + 1] = UI.Panel {
+            position = "absolute",
+            top = -2,
+            right = -4,
+            width = 8,
+            height = 8,
+            backgroundColor = { 250, 80, 80, 255 },
+            borderRadius = 4,
+        }
+    end
+
+    return UI.Panel {
+        alignItems = "center",
+        gap = 2,
+        children = {
+            UI.Panel {
+                width = 24,
+                height = 20,
+                justifyContent = "center",
+                alignItems = "center",
+                children = iconChildren,
+            },
+            UI.Label {
+                text = tab.label,
+                fontSize = 9,
+                fontColor = tabColor,
             },
         },
     }
@@ -429,10 +1197,13 @@ function HandleUpdate(eventType, eventData)
         local timeLabel = uiRoot_:FindById("timeLabel")
         if timeLabel then timeLabel:SetText(timeStr) end
 
-        local clockLabel = uiRoot_:FindById("clockLabel")
-        if clockLabel then clockLabel:SetText(timeStr) end
+        -- 仅在主屏幕时更新时钟
+        if not currentApp_ then
+            local clockLabel = uiRoot_:FindById("clockLabel")
+            if clockLabel then clockLabel:SetText(timeStr) end
 
-        local dateLabel = uiRoot_:FindById("dateLabel")
-        if dateLabel then dateLabel:SetText(dateStr) end
+            local dateLabel = uiRoot_:FindById("dateLabel")
+            if dateLabel then dateLabel:SetText(dateStr) end
+        end
     end
 end
