@@ -1073,4 +1073,1162 @@ function M.GetChatMessages(chatName)
     end
 end
 
+-- ============================================================================
+-- 通讯录页面
+-- ============================================================================
+
+-- 每个分类下的虚构人员数据
+local contactsData_ = {
+    ["组织架构"] = {
+        { name = "杨清", role = "信息技术系-教师", initial = "杨" },
+        { name = "王丹妮", role = "教务处-副主任", initial = "王" },
+        { name = "李建国", role = "校长", initial = "李" },
+        { name = "张美华", role = "财务处-会计", initial = "张" },
+        { name = "陈志强", role = "总务处-主任", initial = "陈" },
+        { name = "林小红", role = "办公室-秘书", initial = "林" },
+    },
+    ["教职工-信息技术系"] = {
+        { name = "杨清", role = "计算机应用-讲师", initial = "杨" },
+        { name = "黄伟明", role = "网络工程-副教授", initial = "黄" },
+        { name = "吴丽珍", role = "软件技术-讲师", initial = "吴" },
+        { name = "郑晓峰", role = "物联网-实验员", initial = "郑" },
+        { name = "周雅琴", role = "数字媒体-讲师", initial = "周" },
+    },
+    ["职工之家-工会-家长"] = {
+        { name = "古禹", role = "工会主席", initial = "古" },
+        { name = "邓星妹", role = "工会委员", initial = "邓" },
+        { name = "蔡明辉", role = "工会委员", initial = "蔡" },
+        { name = "刘秀英", role = "家委会代表", initial = "刘" },
+    },
+    ["三年级2023级-2...控与维护-老师"] = {
+        { name = "赵国栋", role = "班主任", initial = "赵" },
+        { name = "孙丽华", role = "专业课教师", initial = "孙" },
+        { name = "钱伟", role = "实训指导", initial = "钱" },
+    },
+    ["二年级2024级-...技术应用)-老师"] = {
+        { name = "杨清", role = "班主任", initial = "杨" },
+        { name = "许志豪", role = "专业课教师", initial = "许" },
+        { name = "何婷婷", role = "辅导员", initial = "何" },
+        { name = "陈大伟", role = "实训指导", initial = "陈" },
+    },
+    ["管理员助理"] = {
+        { name = "系统助理", role = "智能管理工具", initial = "管" },
+    },
+    ["AI助理"] = {
+        { name = "AI 助理", role = "智能问答服务", initial = "AI" },
+    },
+    ["集团上下级"] = {
+        { name = "泉州教育集团", role = "上级单位", initial = "泉" },
+        { name = "石狮职教中心", role = "平级单位", initial = "石" },
+        { name = "晋江工贸学校", role = "平级单位", initial = "晋" },
+    },
+    ["产业上下游"] = {
+        { name = "福建信息产业协会", role = "行业合作", initial = "信" },
+        { name = "泉州软件园", role = "实习基地", initial = "泉" },
+        { name = "石狮服装城", role = "校企合作", initial = "石" },
+        { name = "鹏山科技有限公司", role = "合作企业", initial = "鹏" },
+    },
+}
+
+--- 创建通讯录子页面：人员列表（深色主题）
+function M.CreateContactDetailPage(title, onBack)
+    local people = contactsData_[title] or {}
+
+    -- 构建人员列表
+    local personItems = {}
+    for i, person in ipairs(people) do
+        -- 随机但确定的头像颜色（基于名字）
+        local colorSeed = string.byte(person.initial, 1) or 65
+        local avatarColors = {
+            { 80, 130, 220, 255 },
+            { 200, 90, 90, 255 },
+            { 60, 170, 100, 255 },
+            { 180, 120, 60, 255 },
+            { 140, 80, 200, 255 },
+            { 60, 170, 180, 255 },
+            { 200, 80, 160, 255 },
+        }
+        local avatarBg = avatarColors[(colorSeed % #avatarColors) + 1]
+
+        personItems[#personItems + 1] = UI.Panel {
+            width = "100%",
+            paddingVertical = 12,
+            paddingHorizontal = 16,
+            flexDirection = "row",
+            alignItems = "center",
+            gap = 12,
+            borderBottomWidth = (i < #people) and 1 or 0,
+            borderBottomColor = { 50, 50, 60, 255 },
+            children = {
+                -- 头像
+                UI.Panel {
+                    width = 40, height = 40,
+                    backgroundColor = avatarBg,
+                    borderRadius = 20,
+                    justifyContent = "center",
+                    alignItems = "center",
+                    children = {
+                        UI.Label { text = person.initial, fontSize = 15, fontColor = { 255, 255, 255, 255 } },
+                    },
+                },
+                -- 名字 + 角色
+                UI.Panel {
+                    flexGrow = 1, flexShrink = 1,
+                    flexDirection = "column",
+                    gap = 3,
+                    children = {
+                        UI.Label { text = person.name, fontSize = 14, fontColor = { 235, 235, 240, 255 } },
+                        UI.Label { text = person.role, fontSize = 11, fontColor = { 120, 120, 135, 255 }, maxLines = 1 },
+                    },
+                },
+            },
+        }
+    end
+
+    -- 空列表提示
+    if #personItems == 0 then
+        personItems[1] = UI.Panel {
+            width = "100%",
+            paddingVertical = 40,
+            justifyContent = "center",
+            alignItems = "center",
+            children = {
+                UI.Label { text = "暂无成员", fontSize = 13, fontColor = { 100, 100, 110, 255 } },
+            },
+        }
+    end
+
+    return UI.Panel {
+        width = "100%",
+        height = "100%",
+        backgroundColor = { 22, 22, 30, 255 },
+        flexDirection = "column",
+        children = {
+            -- 顶栏
+            UI.Panel {
+                width = "100%",
+                height = 48,
+                backgroundColor = { 30, 30, 40, 255 },
+                flexDirection = "row",
+                alignItems = "center",
+                paddingHorizontal = 6,
+                borderBottomWidth = 1,
+                borderBottomColor = { 50, 50, 60, 255 },
+                children = {
+                    UI.Button {
+                        width = 36, height = 36,
+                        backgroundColor = { 0, 0, 0, 0 },
+                        hoverBackgroundColor = { 255, 255, 255, 15 },
+                        pressedBackgroundColor = { 255, 255, 255, 30 },
+                        borderRadius = 4,
+                        text = "<",
+                        textColor = { 100, 150, 255, 255 },
+                        fontSize = 16,
+                        onClick = function(self) onBack() end,
+                    },
+                    UI.Label {
+                        text = title,
+                        fontSize = 14,
+                        fontColor = { 235, 235, 240, 255 },
+                        flexGrow = 1,
+                        textAlign = "center",
+                        marginRight = 36,
+                        maxLines = 1,
+                    },
+                },
+            },
+            -- 成员数量统计
+            UI.Panel {
+                width = "100%",
+                paddingHorizontal = 16,
+                paddingVertical = 10,
+                children = {
+                    UI.Label {
+                        text = "共 " .. #people .. " 人",
+                        fontSize = 12,
+                        fontColor = { 120, 120, 135, 255 },
+                    },
+                },
+            },
+            -- 人员列表
+            UI.ScrollView {
+                width = "100%",
+                flexGrow = 1, flexBasis = 0,
+                children = {
+                    UI.Panel {
+                        width = "100%",
+                        flexDirection = "column",
+                        paddingBottom = 20,
+                        children = personItems,
+                    },
+                },
+            },
+        },
+    }
+end
+
+--- 创建通讯录主页面（底部 Tab 切换，非子页面）
+---@param onNavigate fun(title: string) 点击子项时的导航回调
+function M.CreateContactsPage(onNavigate)
+    -- 组织架构子项
+    local orgItems = {
+        "组织架构",
+        "教职工-信息技术系",
+        "职工之家-工会-家长",
+        "三年级2023级-2...控与维护-老师",
+        "二年级2024级-...技术应用)-老师",
+    }
+
+    -- 构建组织架构列表（可点击）
+    local orgChildren = {}
+    for i, name in ipairs(orgItems) do
+        orgChildren[#orgChildren + 1] = UI.Button {
+            width = "100%",
+            height = 50,
+            backgroundColor = { 0, 0, 0, 0 },
+            hoverBackgroundColor = { 255, 255, 255, 8 },
+            pressedBackgroundColor = { 255, 255, 255, 15 },
+            borderRadius = 0,
+            flexDirection = "row",
+            alignItems = "center",
+            paddingLeft = 32,
+            paddingRight = 12,
+            borderBottomWidth = (i < #orgItems) and 1 or 0,
+            borderBottomColor = { 60, 60, 70, 255 },
+            onClick = function(self) onNavigate(name) end,
+            children = {
+                UI.Label {
+                    text = "└",
+                    fontSize = 14,
+                    fontColor = { 100, 100, 110, 255 },
+                    marginRight = 12,
+                    pointerEvents = "none",
+                },
+                UI.Label {
+                    text = name,
+                    fontSize = 13,
+                    fontColor = { 230, 230, 235, 255 },
+                    flexShrink = 1,
+                    maxLines = 1,
+                    flexGrow = 1,
+                    pointerEvents = "none",
+                },
+                UI.Label {
+                    text = ">",
+                    fontSize = 13,
+                    fontColor = { 80, 80, 90, 255 },
+                    pointerEvents = "none",
+                },
+            },
+        }
+    end
+
+    -- 功能入口项（管理员助理、AI助理）— 可点击
+    local function CreateFeatureItem(iconText, iconBg, label)
+        return UI.Button {
+            width = "100%",
+            height = 56,
+            backgroundColor = { 0, 0, 0, 0 },
+            hoverBackgroundColor = { 255, 255, 255, 8 },
+            pressedBackgroundColor = { 255, 255, 255, 15 },
+            borderRadius = 0,
+            flexDirection = "row",
+            alignItems = "center",
+            paddingHorizontal = 16,
+            gap = 12,
+            onClick = function(self) onNavigate(label) end,
+            children = {
+                UI.Panel {
+                    width = 40, height = 40,
+                    backgroundColor = iconBg,
+                    borderRadius = 10,
+                    justifyContent = "center",
+                    alignItems = "center",
+                    pointerEvents = "none",
+                    children = {
+                        UI.Label { text = iconText, fontSize = 14, fontColor = { 255, 255, 255, 255 } },
+                    },
+                },
+                UI.Label {
+                    text = label,
+                    fontSize = 14,
+                    fontColor = { 230, 230, 235, 255 },
+                    flexGrow = 1,
+                    pointerEvents = "none",
+                },
+                UI.Label {
+                    text = ">",
+                    fontSize = 13,
+                    fontColor = { 80, 80, 90, 255 },
+                    pointerEvents = "none",
+                },
+            },
+        }
+    end
+
+    -- 外部组织项（集团上下级、产业上下游）— 可点击
+    local function CreateExternalOrgItem(iconText, iconBg, label, subtitle)
+        local innerChildren = {
+            UI.Label {
+                text = label,
+                fontSize = 14,
+                fontColor = { 230, 230, 235, 255 },
+                flexGrow = 1,
+                pointerEvents = "none",
+            },
+        }
+        if subtitle then
+            innerChildren[#innerChildren + 1] = UI.Label {
+                text = subtitle,
+                fontSize = 11,
+                fontColor = { 120, 120, 130, 255 },
+                marginRight = 4,
+                pointerEvents = "none",
+            }
+        end
+        innerChildren[#innerChildren + 1] = UI.Label {
+            text = ">",
+            fontSize = 14,
+            fontColor = { 100, 100, 110, 255 },
+            pointerEvents = "none",
+        }
+
+        return UI.Button {
+            width = "100%",
+            height = 56,
+            backgroundColor = { 0, 0, 0, 0 },
+            hoverBackgroundColor = { 255, 255, 255, 8 },
+            pressedBackgroundColor = { 255, 255, 255, 15 },
+            borderRadius = 0,
+            flexDirection = "row",
+            alignItems = "center",
+            paddingHorizontal = 16,
+            gap = 12,
+            onClick = function(self) onNavigate(label) end,
+            children = {
+                UI.Panel {
+                    width = 40, height = 40,
+                    backgroundColor = iconBg,
+                    borderRadius = 10,
+                    justifyContent = "center",
+                    alignItems = "center",
+                    pointerEvents = "none",
+                    children = {
+                        UI.Label { text = iconText, fontSize = 16, fontColor = { 255, 255, 255, 255 } },
+                    },
+                },
+                UI.Panel {
+                    flexGrow = 1,
+                    flexDirection = "row",
+                    alignItems = "center",
+                    justifyContent = "space-between",
+                    pointerEvents = "none",
+                    children = innerChildren,
+                },
+            },
+        }
+    end
+
+    -- 整体页面（深色主题）
+    return UI.Panel {
+        width = "100%",
+        height = "100%",
+        backgroundColor = { 22, 22, 30, 255 },
+        flexDirection = "column",
+        children = {
+            -- 顶部区域：用户信息 + 添加按钮
+            UI.Panel {
+                width = "100%",
+                paddingHorizontal = 12,
+                paddingTop = 10,
+                paddingBottom = 10,
+                flexDirection = "row",
+                alignItems = "center",
+                gap = 10,
+                children = {
+                    -- 头像
+                    UI.Panel {
+                        width = 44, height = 44,
+                        backgroundColor = { 60, 60, 80, 255 },
+                        borderRadius = 8,
+                        justifyContent = "center",
+                        alignItems = "center",
+                        children = {
+                            UI.Label { text = "杨", fontSize = 16, fontColor = { 200, 200, 220, 255 } },
+                        },
+                    },
+                    -- 名称 + 单位
+                    UI.Panel {
+                        flexDirection = "column",
+                        gap = 2,
+                        flexGrow = 1,
+                        flexShrink = 1,
+                        children = {
+                            UI.Label { text = "杨清", fontSize = 15, fontColor = { 240, 240, 245, 255 }, fontWeight = "bold" },
+                            UI.Label { text = "福建省石狮鹏山工贸学校", fontSize = 10, fontColor = { 140, 140, 150, 255 }, maxLines = 1 },
+                        },
+                    },
+                    -- 添加联系人
+                    UI.Panel {
+                        width = 28, height = 28,
+                        justifyContent = "center",
+                        alignItems = "center",
+                        children = {
+                            UI.Label { text = "+", fontSize = 20, fontColor = { 180, 180, 190, 255 } },
+                        },
+                    },
+                },
+            },
+
+            -- 可滚动内容区
+            UI.ScrollView {
+                width = "100%",
+                flexGrow = 1, flexBasis = 0,
+                children = {
+                    UI.Panel {
+                        width = "100%",
+                        flexDirection = "column",
+                        paddingBottom = 20,
+                        children = {
+                            -- 学校组织卡片
+                            UI.Panel {
+                                width = "100%",
+                                marginTop = 8,
+                                marginHorizontal = 0,
+                                backgroundColor = { 35, 35, 45, 255 },
+                                borderRadius = 12,
+                                marginBottom = 8,
+                                paddingBottom = 4,
+                                overflow = "hidden",
+                                flexDirection = "column",
+                                children = {
+                                    -- 卡片头部：学校名 + 管理按钮
+                                    UI.Panel {
+                                        width = "100%",
+                                        paddingHorizontal = 16,
+                                        paddingVertical = 14,
+                                        flexDirection = "row",
+                                        alignItems = "center",
+                                        gap = 10,
+                                        children = {
+                                            -- 学校 logo 占位
+                                            UI.Panel {
+                                                width = 44, height = 44,
+                                                backgroundColor = { 50, 50, 65, 255 },
+                                                borderRadius = 22,
+                                                borderWidth = 1,
+                                                borderColor = { 80, 80, 100, 255 },
+                                                justifyContent = "center",
+                                                alignItems = "center",
+                                                children = {
+                                                    UI.Label { text = "工贸", fontSize = 12, fontColor = { 150, 150, 170, 255 } },
+                                                },
+                                            },
+                                            -- 名称 + 标签
+                                            UI.Panel {
+                                                flexGrow = 1, flexShrink = 1,
+                                                flexDirection = "column",
+                                                gap = 4,
+                                                children = {
+                                                    UI.Label {
+                                                        text = "福建省石狮鹏山工贸学校",
+                                                        fontSize = 14,
+                                                        fontColor = { 240, 240, 245, 255 },
+                                                        fontWeight = "bold",
+                                                        maxLines = 1,
+                                                    },
+                                                    -- 标签行
+                                                    UI.Panel {
+                                                        flexDirection = "row",
+                                                        gap = 6,
+                                                        children = {
+                                                            UI.Panel {
+                                                                paddingHorizontal = 6, paddingVertical = 2,
+                                                                backgroundColor = { 30, 80, 50, 255 },
+                                                                borderRadius = 3,
+                                                                flexDirection = "row",
+                                                                alignItems = "center",
+                                                                gap = 3,
+                                                                children = {
+                                                                    UI.Label { text = "V", fontSize = 8, fontColor = { 80, 200, 120, 255 } },
+                                                                    UI.Label { text = "年检认证", fontSize = 9, fontColor = { 80, 200, 120, 255 } },
+                                                                },
+                                                            },
+                                                            UI.Panel {
+                                                                paddingHorizontal = 6, paddingVertical = 2,
+                                                                backgroundColor = { 40, 40, 60, 255 },
+                                                                borderRadius = 3,
+                                                                flexDirection = "row",
+                                                                alignItems = "center",
+                                                                gap = 3,
+                                                                children = {
+                                                                    UI.Label { text = "P", fontSize = 8, fontColor = { 100, 140, 255, 255 } },
+                                                                    UI.Label { text = "专业版", fontSize = 9, fontColor = { 140, 140, 160, 255 } },
+                                                                },
+                                                            },
+                                                        },
+                                                    },
+                                                },
+                                            },
+                                            -- 管理按钮
+                                            UI.Panel {
+                                                paddingHorizontal = 14,
+                                                paddingVertical = 6,
+                                                backgroundColor = { 50, 50, 65, 255 },
+                                                borderRadius = 14,
+                                                borderWidth = 1,
+                                                borderColor = { 80, 80, 100, 255 },
+                                                children = {
+                                                    UI.Label { text = "管理", fontSize = 11, fontColor = { 100, 150, 255, 255 } },
+                                                },
+                                            },
+                                        },
+                                    },
+                                    -- 组织架构列表
+                                    UI.Panel {
+                                        width = "100%",
+                                        flexDirection = "column",
+                                        children = orgChildren,
+                                    },
+                                    -- 管理员助理 & AI 助理
+                                    CreateFeatureItem("管", { 120, 80, 200, 255 }, "管理员助理"),
+                                    CreateFeatureItem("AI", { 50, 120, 220, 255 }, "AI助理"),
+                                },
+                            },
+
+                            -- 外部组织卡片
+                            UI.Panel {
+                                width = "100%",
+                                backgroundColor = { 35, 35, 45, 255 },
+                                borderRadius = 12,
+                                paddingVertical = 4,
+                                flexDirection = "column",
+                                overflow = "hidden",
+                                children = {
+                                    CreateExternalOrgItem("OO", { 230, 120, 30, 255 }, "集团上下级", "组织多单位管理"),
+                                    UI.Panel { width = "100%", height = 1, backgroundColor = { 50, 50, 60, 255 }, marginHorizontal = 16 },
+                                    CreateExternalOrgItem("G", { 50, 160, 120, 255 }, "产业上下游", nil),
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    }
+end
+
+-- ============================================================================
+-- 全局搜索接口
+-- ============================================================================
+
+--- 搜索所有数据，返回分类结果
+---@param keyword string 搜索关键词
+---@param chatList table 主页聊天列表（由 main.lua 传入）
+---@return table { contacts, chats, todos, dings, calendar }
+function M.SearchAll(keyword, chatList)
+    if not keyword or keyword == "" then return nil end
+    local kw = string.lower(keyword)
+
+    local function match(text)
+        if not text then return false end
+        return string.find(string.lower(text), kw, 1, true) ~= nil
+    end
+
+    local results = { contacts = {}, chats = {}, todos = {}, dings = {}, calendar = {} }
+    local seenContact = {}  -- 去重
+
+    -- 1. 联系人
+    for group, people in pairs(contactsData_) do
+        for _, p in ipairs(people) do
+            if match(p.name) or match(p.role) or match(group) then
+                local key = p.name .. "|" .. (p.role or "")
+                if not seenContact[key] then
+                    seenContact[key] = true
+                    results.contacts[#results.contacts + 1] = {
+                        name = p.name, role = p.role, initial = p.initial, group = group,
+                    }
+                end
+            end
+        end
+    end
+
+    -- 2. 群聊 / 会话
+    for _, chat in ipairs(chatList or {}) do
+        if match(chat.name) or match(chat.msg) or match(chat.tag) then
+            results.chats[#results.chats + 1] = chat
+        end
+    end
+
+    -- 3. 待办
+    for _, todo in ipairs(todoData_) do
+        if match(todo.text) or match(todo.due) then
+            results.todos[#results.todos + 1] = todo
+        end
+    end
+
+    -- 4. DING
+    for _, d in ipairs(dingData_) do
+        if match(d.sender) or match(d.content) then
+            results.dings[#results.dings + 1] = d
+        end
+    end
+
+    -- 5. 日历日程
+    local calEvents = {
+        { title = "班主任例会", time = "09:00", desc = "今日日程" },
+        { title = "教研组活动", time = "14:00", desc = "明日日程" },
+        { title = "月度总结会", time = "10:00", desc = "3日后" },
+    }
+    for _, ev in ipairs(calEvents) do
+        if match(ev.title) then
+            results.calendar[#results.calendar + 1] = ev
+        end
+    end
+
+    return results
+end
+
+-- ============================================================================
+-- 搜索页面
+-- ============================================================================
+
+--- 创建搜索页面（浅色主题，带实时搜索）
+---@param onBack fun() 返回回调
+---@param chatList table 主页聊天列表数据
+function M.CreateSearchPage(onBack, chatList, onNavigate)
+    local resultContainer = UI.Panel {
+        width = "100%",
+        flexDirection = "column",
+        paddingBottom = 20,
+    }
+
+    -- 搜索状态文字
+    local hintPanel = UI.Panel {
+        width = "100%",
+        paddingVertical = 60,
+        alignItems = "center",
+        justifyContent = "center",
+        children = {
+            UI.Label { text = "输入关键词搜索", fontSize = 12, fontColor = C.textSec },
+        },
+    }
+    resultContainer:AddChild(hintPanel)
+
+    local function doSearch(keyword)
+        resultContainer:ClearChildren()
+        if not keyword or keyword == "" then
+            resultContainer:AddChild(UI.Panel {
+                width = "100%", paddingVertical = 60, alignItems = "center",
+                children = {
+                    UI.Label { text = "输入关键词搜索", fontSize = 12, fontColor = C.textSec },
+                },
+            })
+            return
+        end
+
+        local r = M.SearchAll(keyword, chatList)
+        if not r then return end
+
+        local totalCount = #r.contacts + #r.chats + #r.todos + #r.dings + #r.calendar
+        if totalCount == 0 then
+            resultContainer:AddChild(UI.Panel {
+                width = "100%", paddingVertical = 60, alignItems = "center",
+                children = {
+                    UI.Label { text = "未找到\"" .. keyword .. "\"相关结果", fontSize = 12, fontColor = C.textSec },
+                },
+            })
+            return
+        end
+
+        -- 分类标题
+        local function SectionTitle(title, count)
+            return UI.Panel {
+                width = "100%",
+                paddingHorizontal = 14,
+                paddingTop = 14,
+                paddingBottom = 6,
+                backgroundColor = C.bg,
+                children = {
+                    UI.Label {
+                        text = title .. " (" .. count .. ")",
+                        fontSize = 12,
+                        fontColor = C.blue,
+                        fontWeight = "bold",
+                    },
+                },
+            }
+        end
+
+        -- 结果行（可点击）
+        local function ResultRow(icon, iconBg, line1, line2, onClick)
+            return UI.Button {
+                width = "100%",
+                height = 56,
+                paddingHorizontal = 14,
+                flexDirection = "row",
+                alignItems = "center",
+                gap = 10,
+                backgroundColor = C.white,
+                hoverBackgroundColor = { 245, 245, 250, 255 },
+                pressedBackgroundColor = { 235, 235, 240, 255 },
+                borderRadius = 0,
+                borderBottomWidth = 1,
+                borderBottomColor = { 245, 245, 245, 255 },
+                onClick = function(self)
+                    if onClick and onNavigate then onClick() end
+                end,
+                children = {
+                    UI.Panel {
+                        width = 36, height = 36,
+                        backgroundColor = iconBg,
+                        borderRadius = 18,
+                        justifyContent = "center",
+                        alignItems = "center",
+                        pointerEvents = "none",
+                        children = {
+                            UI.Label { text = icon, fontSize = 12, fontColor = { 255, 255, 255, 255 } },
+                        },
+                    },
+                    UI.Panel {
+                        flexGrow = 1, flexShrink = 1,
+                        flexDirection = "column",
+                        gap = 2,
+                        pointerEvents = "none",
+                        children = {
+                            UI.Label { text = line1, fontSize = 13, fontColor = C.text, maxLines = 1 },
+                            UI.Label { text = line2, fontSize = 10, fontColor = C.textSec, maxLines = 1 },
+                        },
+                    },
+                    -- 右箭头
+                    UI.Label { text = ">", fontSize = 12, fontColor = C.textSec, pointerEvents = "none" },
+                },
+            }
+        end
+
+        -- 联系人 → 点击打开联系人详情（跳转到该联系人所在分组）
+        if #r.contacts > 0 then
+            resultContainer:AddChild(SectionTitle("联系人", #r.contacts))
+            for _, c in ipairs(r.contacts) do
+                local contactGroup = c.group
+                resultContainer:AddChild(ResultRow(c.initial, { 80, 130, 220, 255 }, c.name, c.role .. " · " .. c.group,
+                    function() onNavigate("contact", { group = contactGroup }) end))
+            end
+        end
+
+        -- 群聊 → 点击打开聊天详情
+        if #r.chats > 0 then
+            resultContainer:AddChild(SectionTitle("群聊 / 会话", #r.chats))
+            for _, ch in ipairs(r.chats) do
+                local chatData = ch
+                resultContainer:AddChild(ResultRow(ch.iconText or "群", ch.iconBg or C.blue, ch.name, ch.msg or "",
+                    function() onNavigate("chat", chatData) end))
+            end
+        end
+
+        -- 待办 → 点击打开待办页面
+        if #r.todos > 0 then
+            resultContainer:AddChild(SectionTitle("待办事项", #r.todos))
+            for _, td in ipairs(r.todos) do
+                local status = td.done and "已完成" or "待处理"
+                local pLabel = ({ high = "紧急", medium = "普通", low = "较低" })[td.priority] or ""
+                resultContainer:AddChild(ResultRow(td.done and "V" or "O",
+                    td.done and C.green or C.orange,
+                    td.text,
+                    status .. " · " .. pLabel .. " · " .. (td.due or ""),
+                    function() onNavigate("todo") end))
+            end
+        end
+
+        -- DING → 点击打开DING页面
+        if #r.dings > 0 then
+            resultContainer:AddChild(SectionTitle("DING 消息", #r.dings))
+            for _, d in ipairs(r.dings) do
+                local ic = d.urgent and "!" or "D"
+                local bg = d.urgent and C.red or C.blue
+                resultContainer:AddChild(ResultRow(ic, bg, d.sender .. " · " .. d.time, d.content,
+                    function() onNavigate("ding") end))
+            end
+        end
+
+        -- 日历日程 → 点击打开日历页面
+        if #r.calendar > 0 then
+            resultContainer:AddChild(SectionTitle("日程", #r.calendar))
+            for _, ev in ipairs(r.calendar) do
+                resultContainer:AddChild(ResultRow("日", { 60, 160, 120, 255 }, ev.title, ev.time .. " · " .. ev.desc,
+                    function() onNavigate("calendar") end))
+            end
+        end
+    end
+
+    return UI.Panel {
+        width = "100%",
+        height = "100%",
+        backgroundColor = C.bg,
+        flexDirection = "column",
+        children = {
+            -- 搜索顶栏
+            UI.Panel {
+                width = "100%",
+                height = 48,
+                backgroundColor = C.white,
+                flexDirection = "row",
+                alignItems = "center",
+                paddingHorizontal = 8,
+                gap = 6,
+                borderBottomWidth = 1,
+                borderBottomColor = C.border,
+                children = {
+                    UI.Button {
+                        width = 30, height = 30,
+                        backgroundColor = { 0, 0, 0, 0 },
+                        hoverBackgroundColor = { 0, 0, 0, 15 },
+                        pressedBackgroundColor = { 0, 0, 0, 30 },
+                        borderRadius = 4,
+                        text = "<",
+                        textColor = C.text,
+                        fontSize = 14,
+                        onClick = function(self) onBack() end,
+                    },
+                    UI.Panel {
+                        flexGrow = 1, flexBasis = 0,
+                        height = 32,
+                        backgroundColor = { 242, 242, 242, 255 },
+                        borderRadius = 16,
+                        flexDirection = "row",
+                        alignItems = "center",
+                        paddingHorizontal = 4,
+                        children = {
+                            UI.TextField {
+                                placeholder = "搜索联系人、群聊、待办...",
+                                flexGrow = 1,
+                                onChange = function(self, v)
+                                    doSearch(v)
+                                end,
+                            },
+                        },
+                    },
+                },
+            },
+            -- 结果区
+            UI.ScrollView {
+                width = "100%",
+                flexGrow = 1, flexBasis = 0,
+                children = { resultContainer },
+            },
+        },
+    }
+end
+
+-- ============================================================================
+-- "更多"页面 & 关于
+-- ============================================================================
+
+function M.CreateMorePage()
+    -- 菜单项构建器
+    local function MenuItem(iconText, iconBg, label, onClick)
+        return UI.Button {
+            width = "100%",
+            height = 52,
+            backgroundColor = C.white,
+            hoverBackgroundColor = { 248, 248, 248, 255 },
+            pressedBackgroundColor = { 240, 240, 240, 255 },
+            borderRadius = 0,
+            flexDirection = "row",
+            alignItems = "center",
+            paddingHorizontal = 14,
+            gap = 12,
+            borderBottomWidth = 1,
+            borderBottomColor = { 245, 245, 245, 255 },
+            onClick = function(self)
+                if onClick then onClick() end
+            end,
+            children = {
+                UI.Panel {
+                    width = 34, height = 34,
+                    backgroundColor = iconBg,
+                    borderRadius = 8,
+                    justifyContent = "center",
+                    alignItems = "center",
+                    pointerEvents = "none",
+                    children = {
+                        UI.Label { text = iconText, fontSize = 13, fontColor = { 255, 255, 255, 255 } },
+                    },
+                },
+                UI.Label {
+                    text = label,
+                    fontSize = 13,
+                    fontColor = C.text,
+                    flexGrow = 1,
+                    pointerEvents = "none",
+                },
+                UI.Label {
+                    text = ">",
+                    fontSize = 13,
+                    fontColor = C.textSec,
+                    pointerEvents = "none",
+                },
+            },
+        }
+    end
+
+    -- 内容容器（用于切换到关于子页面）
+    local moreContainer = UI.Panel {
+        width = "100%",
+        height = "100%",
+        flexDirection = "column",
+    }
+
+    local function showAbout()
+        moreContainer:ClearChildren()
+        moreContainer:AddChild(M.CreateAboutPage(function()
+            moreContainer:ClearChildren()
+            moreContainer:AddChild(buildMainMenu())
+        end))
+    end
+
+    function buildMainMenu()
+        return UI.Panel {
+            width = "100%",
+            height = "100%",
+            backgroundColor = C.bg,
+            flexDirection = "column",
+            children = {
+                -- 顶栏
+                UI.Panel {
+                    width = "100%",
+                    height = 44,
+                    backgroundColor = C.white,
+                    justifyContent = "center",
+                    alignItems = "center",
+                    borderBottomWidth = 1,
+                    borderBottomColor = C.border,
+                    children = {
+                        UI.Label { text = "更多", fontSize = 15, fontColor = C.text },
+                    },
+                },
+                -- 菜单列表
+                UI.ScrollView {
+                    width = "100%",
+                    flexGrow = 1, flexBasis = 0,
+                    children = {
+                        UI.Panel {
+                            width = "100%",
+                            flexDirection = "column",
+                            paddingTop = 10,
+                            gap = 10,
+                            children = {
+                                -- 第一组
+                                UI.Panel {
+                                    width = "100%",
+                                    flexDirection = "column",
+                                    backgroundColor = C.white,
+                                    borderRadius = 0,
+                                    children = {
+                                        MenuItem("钱", { 255, 140, 0, 255 }, "钱包"),
+                                        MenuItem("扫", C.blue, "扫一扫"),
+                                        MenuItem("卡", { 60, 180, 100, 255 }, "名片"),
+                                    },
+                                },
+                                -- 第二组
+                                UI.Panel {
+                                    width = "100%",
+                                    flexDirection = "column",
+                                    backgroundColor = C.white,
+                                    children = {
+                                        MenuItem("设", { 100, 100, 120, 255 }, "设置"),
+                                        MenuItem("帮", { 80, 150, 220, 255 }, "帮助与反馈"),
+                                    },
+                                },
+                                -- 第三组
+                                UI.Panel {
+                                    width = "100%",
+                                    flexDirection = "column",
+                                    backgroundColor = C.white,
+                                    children = {
+                                        MenuItem("i", { 48, 118, 255, 255 }, "关于", showAbout),
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        }
+    end
+
+    moreContainer:AddChild(buildMainMenu())
+    return moreContainer
+end
+
+--- 关于页面
+function M.CreateAboutPage(onBack)
+    local function InfoRow(label, value)
+        return UI.Panel {
+            width = "100%",
+            paddingVertical = 10,
+            paddingHorizontal = 20,
+            flexDirection = "row",
+            justifyContent = "space-between",
+            alignItems = "center",
+            borderBottomWidth = 1,
+            borderBottomColor = { 245, 245, 245, 255 },
+            children = {
+                UI.Label { text = label, fontSize = 12, fontColor = C.textSec },
+                UI.Label { text = value, fontSize = 12, fontColor = C.text },
+            },
+        }
+    end
+
+    return UI.Panel {
+        width = "100%",
+        height = "100%",
+        backgroundColor = C.bg,
+        flexDirection = "column",
+        children = {
+            -- 顶栏
+            UI.Panel {
+                width = "100%",
+                height = 44,
+                backgroundColor = C.white,
+                flexDirection = "row",
+                alignItems = "center",
+                paddingHorizontal = 8,
+                borderBottomWidth = 1,
+                borderBottomColor = C.border,
+                children = {
+                    UI.Button {
+                        width = 30, height = 30,
+                        backgroundColor = { 0, 0, 0, 0 },
+                        hoverBackgroundColor = { 0, 0, 0, 15 },
+                        pressedBackgroundColor = { 0, 0, 0, 30 },
+                        borderRadius = 4,
+                        text = "<",
+                        textColor = C.text,
+                        fontSize = 14,
+                        onClick = function(self) onBack() end,
+                    },
+                    UI.Label {
+                        text = "关于",
+                        fontSize = 15,
+                        fontColor = C.text,
+                        flexGrow = 1,
+                        textAlign = "center",
+                        marginRight = 30,
+                    },
+                },
+            },
+
+            -- 内容
+            UI.ScrollView {
+                width = "100%",
+                flexGrow = 1, flexBasis = 0,
+                children = {
+                    UI.Panel {
+                        width = "100%",
+                        flexDirection = "column",
+                        alignItems = "center",
+                        paddingBottom = 40,
+                        children = {
+                            -- Logo 区域
+                            UI.Panel {
+                                width = "100%",
+                                paddingVertical = 30,
+                                alignItems = "center",
+                                gap = 10,
+                                children = {
+                                    UI.Panel {
+                                        width = 72, height = 72,
+                                        backgroundColor = C.blue,
+                                        borderRadius = 18,
+                                        justifyContent = "center",
+                                        alignItems = "center",
+                                        children = {
+                                            UI.Label { text = "钉", fontSize = 28, fontColor = C.white },
+                                        },
+                                    },
+                                    UI.Label { text = "钉钉", fontSize = 18, fontColor = C.text, fontWeight = "bold" },
+                                    UI.Label { text = "让工作学习更简单", fontSize = 11, fontColor = C.textSec },
+                                },
+                            },
+
+                            -- 信息卡片
+                            UI.Panel {
+                                width = "100%",
+                                backgroundColor = C.white,
+                                flexDirection = "column",
+                                children = {
+                                    InfoRow("版本号", "v7.6.20 (像素版)"),
+                                    InfoRow("构建日期", "2025-03-24"),
+                                    InfoRow("引擎", "UrhoX Engine"),
+                                    InfoRow("开发者", "杨清 · 信息技术系"),
+                                    InfoRow("学校", "福建省石狮鹏山工贸学校"),
+                                },
+                            },
+
+                            -- 分隔
+                            UI.Panel { width = "100%", height = 10 },
+
+                            -- 更新日志卡片
+                            UI.Panel {
+                                width = "100%",
+                                backgroundColor = C.white,
+                                flexDirection = "column",
+                                paddingVertical = 14,
+                                paddingHorizontal = 20,
+                                gap = 8,
+                                children = {
+                                    UI.Label { text = "更新日志", fontSize = 13, fontColor = C.text, fontWeight = "bold" },
+                                    UI.Label {
+                                        text = "· 新增通讯录页面，支持查看组织架构\n· 新增全局搜索功能\n· 待办支持自定义添加、完成切换\n· DING 支持一键已读\n· 新增\"关于\"页面",
+                                        fontSize = 11,
+                                        fontColor = C.textSec,
+                                        lineHeight = 1.6,
+                                    },
+                                },
+                            },
+
+                            -- 分隔
+                            UI.Panel { width = "100%", height = 10 },
+
+                            -- 致谢
+                            UI.Panel {
+                                width = "100%",
+                                backgroundColor = C.white,
+                                flexDirection = "column",
+                                paddingVertical = 14,
+                                paddingHorizontal = 20,
+                                gap = 8,
+                                children = {
+                                    UI.Label { text = "致谢", fontSize = 13, fontColor = C.text, fontWeight = "bold" },
+                                    UI.Label {
+                                        text = "感谢 UrhoX 引擎团队提供的强大开发框架。\n本应用为像素风格教学演示项目，\n界面仅供学习参考，非官方钉钉产品。",
+                                        fontSize = 11,
+                                        fontColor = C.textSec,
+                                        lineHeight = 1.6,
+                                    },
+                                },
+                            },
+
+                            -- 底部版权
+                            UI.Panel {
+                                width = "100%",
+                                paddingVertical = 20,
+                                alignItems = "center",
+                                children = {
+                                    UI.Label {
+                                        text = "Made with UrhoX  2025",
+                                        fontSize = 10,
+                                        fontColor = { 180, 180, 185, 255 },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    }
+end
+
 return M

@@ -19,6 +19,24 @@ local phoneFrame_ = nil
 local screenContainer_ = nil  -- 屏幕内容容器（用于切换主屏/应用）
 local dtContentContainer_ = nil  -- 钉钉内容区容器（用于切换子页面）
 
+-- 钉钉聊天列表数据（模块级，供搜索使用）
+local dtChatList_ = {
+    { name = "鹏山工贸学校通知群", tag = "内部群", tagColor = { 48, 118, 255, 255 }, time = "下午2:46",
+      msg = "王丹妮: [倡议书] 关于...", badge = 1, iconBg = { 48, 118, 255, 255 }, iconText = "工贸\n通知" },
+    { name = "工贸班主任通知群", tag = "内部群", tagColor = { 48, 118, 255, 255 }, time = "上午9:24",
+      msg = "邓星妹: 通知 学校定于明天...", badge = 0, iconBg = { 220, 60, 60, 255 }, iconText = "班主任\n通知" },
+    { name = "我 (杨清)", tag = "", tagColor = nil, time = "昨天",
+      msg = "发到聊天里的文件已保存至...", badge = 0, iconBg = { 100, 100, 120, 255 }, iconText = "我" },
+    { name = "24级工业机器人技术...", tag = "师生", tagColor = { 255, 140, 0, 255 }, time = "3月20日",
+      msg = "[图片]", badge = 0, iconBg = { 80, 120, 200, 255 }, iconText = "师生" },
+    { name = "24级工业机器人技术...", tag = "家校", tagColor = { 60, 180, 80, 255 }, time = "3月20日",
+      msg = "[图片]", badge = 0, iconBg = { 80, 120, 200, 255 }, iconText = "家校" },
+    { name = "工会", tag = "家校", tagColor = { 60, 180, 80, 255 }, time = "3月18日",
+      msg = "古禹: 保利郦城有送一些本周末免费...", badge = 0, iconBg = { 100, 130, 200, 255 }, iconText = "工会" },
+    { name = "测试师生群", tag = "师生", tagColor = { 255, 140, 0, 255 }, time = "2025/9/25",
+      msg = "杨清开启了群快捷栏", badge = 0, iconBg = { 200, 80, 200, 255 }, iconText = "测试" },
+}
+
 -- 手机配置
 local PHONE = {
     WIDTH = 380,
@@ -509,21 +527,82 @@ function DingtalkNavigateTo(page, chatData)
     end
 end
 
-function CreateDingtalkApp()
-    -- 底部导航项
-    local tabs = {
-        { label = "消息", icon = "MSG", active = true, badge = 95 },
-        { label = "鹏山工贸", icon = "OA", active = false, badge = 0 },
-        { label = "通讯录", icon = "DIR", active = false, badge = 0 },
-        { label = "我的", icon = "ME", active = false, badge = 0 },
-        { label = "更多", icon = "...", active = false, badge = 0 },
-    }
+-- 当前激活的底部 Tab
+local dtActiveTab_ = "msg"
+local dtTabBarContainer_ = nil  -- 底部 Tab 栏容器（用于刷新高亮）
 
-    local tabItems = {}
-    for _, tab in ipairs(tabs) do
-        tabItems[#tabItems + 1] = CreateDingtalkTab(tab, DT.blue, DT.textSec)
+-- 通讯录子页面导航
+function ContactsNavigateTo(title)
+    if not dtContentContainer_ then return end
+    dtContentContainer_:ClearChildren()
+    local backToContacts = function() DingtalkSwitchTab("contacts") end
+    dtContentContainer_:AddChild(DingtalkPages.CreateContactDetailPage(title, backToContacts))
+end
+
+-- 搜索页面导航
+function DingtalkNavigateToSearch()
+    if not dtContentContainer_ then return end
+    dtContentContainer_:ClearChildren()
+    local backToMain = function() DingtalkSwitchTab("msg") end
+
+    -- 搜索结果点击后的导航回调
+    local function searchNavigate(target, data)
+        if not dtContentContainer_ then return end
+        dtContentContainer_:ClearChildren()
+        local backToSearch = function() DingtalkNavigateToSearch() end
+
+        if target == "chat" and data then
+            -- 打开聊天详情
+            dtContentContainer_:AddChild(DingtalkPages.CreateChatPage(data.name, data.iconBg, backToSearch))
+        elseif target == "contact" and data then
+            -- 打开联系人分组详情
+            dtContentContainer_:AddChild(DingtalkPages.CreateContactDetailPage(data.group, backToSearch))
+        elseif target == "todo" then
+            dtContentContainer_:AddChild(DingtalkPages.CreateTodoPage(backToSearch))
+        elseif target == "ding" then
+            dtContentContainer_:AddChild(DingtalkPages.CreateDingPage(backToSearch))
+        elseif target == "calendar" then
+            dtContentContainer_:AddChild(DingtalkPages.CreateCalendarPage(backToSearch))
+        end
     end
 
+    dtContentContainer_:AddChild(DingtalkPages.CreateSearchPage(backToMain, dtChatList_, searchNavigate))
+end
+
+-- 切换底部 Tab
+function DingtalkSwitchTab(tabId)
+    dtActiveTab_ = tabId
+    if not dtContentContainer_ then return end
+    dtContentContainer_:ClearChildren()
+
+    if tabId == "msg" then
+        dtContentContainer_:AddChild(CreateDingtalkMainContent())
+    elseif tabId == "contacts" then
+        dtContentContainer_:AddChild(DingtalkPages.CreateContactsPage(ContactsNavigateTo))
+    elseif tabId == "more" then
+        dtContentContainer_:AddChild(DingtalkPages.CreateMorePage())
+    end
+
+    -- 刷新底部 Tab 栏高亮状态
+    RefreshDingtalkTabBar()
+end
+
+function RefreshDingtalkTabBar()
+    if not dtTabBarContainer_ then return end
+    dtTabBarContainer_:ClearChildren()
+
+    local tabs = {
+        { id = "msg",      label = "消息",   icon = "MSG", badge = 99 },
+        { id = "contacts", label = "通讯录", icon = "DIR", badge = 0 },
+        { id = "more",     label = "更多",   icon = "...", badge = 0 },
+    }
+
+    for _, tab in ipairs(tabs) do
+        dtTabBarContainer_:AddChild(CreateDingtalkTab(tab, tab.id == dtActiveTab_, DT.blue, DT.textSec))
+    end
+end
+
+function CreateDingtalkApp()
     -- 内容容器
     dtContentContainer_ = UI.Panel {
         width = "100%",
@@ -536,6 +615,22 @@ function CreateDingtalkApp()
         },
     }
 
+    -- 底部 Tab 栏容器
+    dtTabBarContainer_ = UI.Panel {
+        width = "100%",
+        height = 50,
+        backgroundColor = DT.white,
+        flexDirection = "row",
+        alignItems = "center",
+        justifyContent = "space-around",
+        borderTopWidth = 1,
+        borderTopColor = DT.border,
+    }
+
+    -- 初始化 Tab 栏内容
+    dtActiveTab_ = "msg"
+    RefreshDingtalkTabBar()
+
     return UI.Panel {
         width = "100%",
         height = "100%",
@@ -543,44 +638,15 @@ function CreateDingtalkApp()
         flexDirection = "column",
         children = {
             dtContentContainer_,
-            -- 底部导航栏（始终显示）
-            UI.Panel {
-                width = "100%",
-                height = 50,
-                backgroundColor = DT.white,
-                flexDirection = "row",
-                alignItems = "center",
-                justifyContent = "space-around",
-                borderTopWidth = 1,
-                borderTopColor = DT.border,
-                children = tabItems,
-            },
+            dtTabBarContainer_,
         },
     }
 end
 
 --- 钉钉主页面内容（搜索栏 + 快捷栏 + 会话列表）
 function CreateDingtalkMainContent()
-    -- 聊天列表数据
-    local chatList = {
-        { name = "鹏山工贸学校通知群", tag = "内部群", tagColor = DT.blue, time = "下午2:46",
-          msg = "王丹妮: [倡议书] 关于...", badge = 1, iconBg = { 48, 118, 255, 255 }, iconText = "工贸\n通知" },
-        { name = "工贸班主任通知群", tag = "内部群", tagColor = DT.blue, time = "上午9:24",
-          msg = "邓星妹: 通知 学校定于明天...", badge = 0, iconBg = { 220, 60, 60, 255 }, iconText = "班主任\n通知" },
-        { name = "我 (杨清)", tag = "", tagColor = nil, time = "昨天",
-          msg = "发到聊天里的文件已保存至...", badge = 0, iconBg = { 100, 100, 120, 255 }, iconText = "我" },
-        { name = "24级工业机器人技术...", tag = "师生", tagColor = { 255, 140, 0, 255 }, time = "3月20日",
-          msg = "[图片]", badge = 0, iconBg = { 80, 120, 200, 255 }, iconText = "师生" },
-        { name = "24级工业机器人技术...", tag = "家校", tagColor = { 60, 180, 80, 255 }, time = "3月20日",
-          msg = "[图片]", badge = 0, iconBg = { 80, 120, 200, 255 }, iconText = "家校" },
-        { name = "工会", tag = "家校", tagColor = { 60, 180, 80, 255 }, time = "3月18日",
-          msg = "古禹: 保利郦城有送一些本周末免费...", badge = 0, iconBg = { 100, 130, 200, 255 }, iconText = "工会" },
-        { name = "测试师生群", tag = "师生", tagColor = { 255, 140, 0, 255 }, time = "2025/9/25",
-          msg = "杨清开启了群快捷栏", badge = 0, iconBg = { 200, 80, 200, 255 }, iconText = "测试" },
-    }
-
     local chatItems = {}
-    for _, chat in ipairs(chatList) do
+    for _, chat in ipairs(dtChatList_) do
         chatItems[#chatItems + 1] = CreateDingtalkChatItem(chat)
     end
 
@@ -646,17 +712,21 @@ function CreateDingtalkMainContent()
                         fontSize = 14,
                         onClick = function(self) GoHome() end,
                     },
-                    UI.Panel {
+                    UI.Button {
                         flexGrow = 1, flexBasis = 0, flexShrink = 1,
                         height = 30,
                         backgroundColor = { 242, 242, 242, 255 },
+                        hoverBackgroundColor = { 235, 235, 235, 255 },
+                        pressedBackgroundColor = { 225, 225, 225, 255 },
                         borderRadius = 15,
                         marginHorizontal = 8,
-                        flexDirection = "row",
-                        alignItems = "center",
+                        justifyContent = "center",
                         paddingHorizontal = 10,
+                        onClick = function(self)
+                            DingtalkNavigateToSearch()
+                        end,
                         children = {
-                            UI.Label { text = "搜索", fontSize = 11, fontColor = { 180, 180, 180, 255 } },
+                            UI.Label { text = "搜索", fontSize = 11, fontColor = { 180, 180, 180, 255 }, pointerEvents = "none" },
                         },
                     },
                     UI.Panel {
@@ -824,18 +894,20 @@ function CreateDingtalkChatItem(chat)
 end
 
 --- 钉钉底部导航 tab
-function CreateDingtalkTab(tab, dtBlue, dtTextSec)
-    local tabColor = tab.active and dtBlue or dtTextSec
+function CreateDingtalkTab(tab, isActive, dtBlue, dtTextSec)
+    local tabColor = isActive and dtBlue or dtTextSec
     local iconChildren = {
         UI.Label {
             text = tab.icon,
             fontSize = 10,
             fontColor = tabColor,
             textAlign = "center",
+            pointerEvents = "none",
         },
     }
 
     if tab.badge and tab.badge > 0 then
+        local badgeText = tab.badge > 99 and "99+" or tostring(tab.badge)
         iconChildren[#iconChildren + 1] = UI.Panel {
             position = "absolute",
             top = -4, right = -8,
@@ -845,23 +917,38 @@ function CreateDingtalkTab(tab, dtBlue, dtTextSec)
             borderRadius = 7,
             justifyContent = "center",
             alignItems = "center",
+            pointerEvents = "none",
             children = {
-                UI.Label { text = tostring(tab.badge), fontSize = 8, fontColor = { 255, 255, 255, 255 } },
+                UI.Label { text = badgeText, fontSize = 8, fontColor = { 255, 255, 255, 255 } },
             },
         }
     end
 
-    return UI.Panel {
+    return UI.Button {
+        flexGrow = 1,
+        height = 50,
+        backgroundColor = { 0, 0, 0, 0 },
+        hoverBackgroundColor = { 0, 0, 0, 10 },
+        pressedBackgroundColor = { 0, 0, 0, 20 },
+        borderRadius = 0,
+        flexDirection = "column",
         alignItems = "center",
+        justifyContent = "center",
         gap = 2,
+        onClick = function(self)
+            if tab.id and tab.id ~= dtActiveTab_ then
+                DingtalkSwitchTab(tab.id)
+            end
+        end,
         children = {
             UI.Panel {
                 width = 24, height = 20,
                 justifyContent = "center",
                 alignItems = "center",
+                pointerEvents = "none",
                 children = iconChildren,
             },
-            UI.Label { text = tab.label, fontSize = 9, fontColor = tabColor },
+            UI.Label { text = tab.label, fontSize = 9, fontColor = tabColor, pointerEvents = "none" },
         },
     }
 end
