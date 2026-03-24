@@ -1,9 +1,11 @@
 -- ============================================================================
 -- 钉钉子页面模块 (DingTalk Sub-Pages Module)
--- 包含：日历、待办、DING、聊天详情
+-- 包含：日历、待办、DING、聊天详情、通讯录、搜索、更多、关于
+-- 数据来源: DingtalkData 模块（从 CSV 加载）
 -- ============================================================================
 
 local UI = require("urhox-libs/UI")
+local DingtalkData = require("DingtalkData")
 
 local M = {}
 
@@ -71,12 +73,16 @@ function M.CreateCalendarPage(onBack)
     local firstWeekday = os.date("*t", os.time({ year = year, month = month, day = 1 })).wday
     local daysInMonth = os.date("*t", os.time({ year = year, month = month + 1, day = 0 })).day
 
-    -- 日程数据
-    local events = {
-        [today] = { { time = "09:00", title = "班主任例会", color = C.blue } },
-        [today + 1] = { { time = "14:00", title = "教研组活动", color = C.green } },
-        [today + 3] = { { time = "10:00", title = "月度总结会", color = C.orange } },
-    }
+    -- 从数据模块加载日程
+    local calEvents = DingtalkData.GetCalendarEvents()
+    local events = {}
+    for _, ev in ipairs(calEvents) do
+        local day = today + ev.dayOffset
+        if day >= 1 and day <= daysInMonth then
+            if not events[day] then events[day] = {} end
+            events[day][#events[day] + 1] = { time = ev.time, title = ev.title, color = ev.color }
+        end
+    end
 
     -- 星期标题行
     local weekLabels = { "日", "一", "二", "三", "四", "五", "六" }
@@ -94,11 +100,9 @@ function M.CreateCalendarPage(onBack)
 
     -- 日期网格
     local dayWidgets = {}
-    -- 空白填充（月初前的空格）
     for i = 1, firstWeekday - 1 do
         dayWidgets[#dayWidgets + 1] = UI.Panel { width = "14.28%", height = 34 }
     end
-    -- 日期
     for day = 1, daysInMonth do
         local isToday = (day == today)
         local hasEvent = events[day] ~= nil
@@ -265,49 +269,6 @@ end
 -- 待办页面（可交互：切换完成状态、添加新待办）
 -- ============================================================================
 
--- DING 数据（模块级持久化，提前声明供统计函数使用）
-local dingData_ = {
-    { sender = "教务处-李主任", time = "今天 14:20", content = "请各班主任于今天下班前提交本班学生出勤统计表，谢谢配合。", status = "unread", urgent = true },
-    { sender = "校长办公室", time = "今天 11:05", content = "明天上午9:00在会议室召开全体教职工大会，请准时参加。", status = "unread", urgent = true },
-    { sender = "年级组长-王老师", time = "今天 09:30", content = "本周五下午第三节课改为年级组教研活动，请提前准备好材料。", status = "read", urgent = false },
-    { sender = "人事处", time = "昨天 16:45", content = "教师资格证年审通知，请于本月底前完成线上申报。", status = "read", urgent = false },
-    { sender = "后勤部", time = "昨天 10:00", content = "3号教学楼电梯维保通知，3月25日停用一天。", status = "read", urgent = false },
-    { sender = "工会-张委员", time = "3月20日", content = "教职工运动会报名截止本周日，请尽快报名。", status = "confirmed", urgent = false },
-    { sender = "教务处-李主任", time = "3月18日", content = "期中考试监考安排已发布，请查收。", status = "confirmed", urgent = false },
-}
-
--- 待办数据（模块级持久化，页面刷新后数据保留）
-local todoData_ = {
-    { text = "提交3月教学总结报告", done = false, priority = "high", due = "今天" },
-    { text = "审核学生请假申请 (3份)", done = false, priority = "high", due = "今天" },
-    { text = "准备下周班会课件", done = false, priority = "medium", due = "本周五" },
-    { text = "更新班级通讯录", done = false, priority = "low", due = "下周一" },
-    { text = "填写教师培训意向表", done = true, priority = "medium", due = "已完成" },
-    { text = "检查教室多媒体设备", done = true, priority = "low", due = "已完成" },
-    { text = "提交2月考勤表", done = true, priority = "high", due = "已完成" },
-}
-
---- 获取待处理待办数量（供主界面小红点使用）
-function M.GetPendingTodoCount()
-    local count = 0
-    for _, todo in ipairs(todoData_) do
-        if not todo.done then count = count + 1 end
-    end
-    return count
-end
-
---- 获取未读 DING 数量（供主界面小红点使用）
-function M.GetUnreadDingCount()
-    local count = 0
-    for _, d in ipairs(dingData_) do
-        if d.status == "unread" then count = count + 1 end
-    end
-    return count
-end
-
----@type fun()|nil
-local todoRefreshFn_ = nil
-
 function M.CreateTodoPage(onBack)
     local priorityColors = {
         high = C.red,
@@ -320,7 +281,6 @@ function M.CreateTodoPage(onBack)
         low = "较低",
     }
 
-    -- 外层容器（用于刷新整个页面内容）
     local pageContainer = UI.Panel {
         width = "100%",
         height = "100%",
@@ -328,14 +288,15 @@ function M.CreateTodoPage(onBack)
         flexDirection = "column",
     }
 
-    -- 刷新函数：重建页面内容
     local function refreshPage()
         pageContainer:ClearChildren()
+
+        local todoData = DingtalkData.GetTodos()
 
         -- 统计
         local pendingCount = 0
         local doneCount = 0
-        for _, todo in ipairs(todoData_) do
+        for _, todo in ipairs(todoData) do
             if todo.done then doneCount = doneCount + 1 else pendingCount = pendingCount + 1 end
         end
 
@@ -356,11 +317,7 @@ function M.CreateTodoPage(onBack)
                 borderBottomWidth = 1,
                 borderBottomColor = { 245, 245, 245, 255 },
                 onClick = function(self)
-                    -- 切换完成状态
-                    todoData_[index].done = not todoData_[index].done
-                    if todoData_[index].done then
-                        todoData_[index].due = "已完成"
-                    end
+                    DingtalkData.ToggleTodo(index)
                     refreshPage()
                 end,
                 children = {
@@ -416,7 +373,7 @@ function M.CreateTodoPage(onBack)
         -- 分类
         local pendingWidgets = {}
         local doneWidgets = {}
-        for i, todo in ipairs(todoData_) do
+        for i, todo in ipairs(todoData) do
             if todo.done then
                 doneWidgets[#doneWidgets + 1] = CreateTodoItem(todo, i)
             else
@@ -453,7 +410,6 @@ function M.CreateTodoPage(onBack)
                     flexGrow = 1,
                     flexBasis = 0,
                 },
-                -- "+" 添加按钮（弹窗让用户输入）
                 UI.Button {
                     width = 30, height = 30,
                     backgroundColor = C.blue,
@@ -474,7 +430,6 @@ function M.CreateTodoPage(onBack)
                             showCloseButton = true,
                         }
 
-                        -- 优先级选择器容器
                         local priContainer = UI.Panel {
                             width = "100%",
                             flexDirection = "row",
@@ -546,12 +501,7 @@ function M.CreateTodoPage(onBack)
                                     variant = "primary",
                                     onClick = function(s)
                                         if newText ~= "" then
-                                            table.insert(todoData_, 1, {
-                                                text = newText,
-                                                done = false,
-                                                priority = newPriority,
-                                                due = "今天",
-                                            })
+                                            DingtalkData.AddTodo(newText, newPriority)
                                             modal:Close()
                                             refreshPage()
                                         end
@@ -664,7 +614,6 @@ function M.CreateTodoPage(onBack)
         })
     end
 
-    todoRefreshFn_ = refreshPage
     refreshPage()
     return pageContainer
 end
@@ -687,15 +636,14 @@ function M.CreateDingPage(onBack)
     local function refreshPage()
         pageContainer:ClearChildren()
 
+        local dingData = DingtalkData.GetDings()
+
         -- 统计未读
-        local unreadCount = 0
-        for _, d in ipairs(dingData_) do
-            if d.status == "unread" then unreadCount = unreadCount + 1 end
-        end
+        local unreadCount = DingtalkData.GetUnreadDingCount()
 
         -- 创建 DING 列表项
         local dingItems = {}
-        for _, ding in ipairs(dingData_) do
+        for _, ding in ipairs(dingData) do
             local sColor = statusColors[ding.status]
             dingItems[#dingItems + 1] = UI.Panel {
                 width = "100%",
@@ -769,7 +717,7 @@ function M.CreateDingPage(onBack)
             }
         end
 
-        -- 顶栏（含一键已读按钮）
+        -- 顶栏
         local headerChildren = {
             UI.Button {
                 width = 30, height = 30,
@@ -791,7 +739,6 @@ function M.CreateDingPage(onBack)
             },
         }
 
-        -- 只在有未读时显示"一键已读"按钮
         if unreadCount > 0 then
             headerChildren[#headerChildren + 1] = UI.Button {
                 height = 26,
@@ -804,11 +751,7 @@ function M.CreateDingPage(onBack)
                 textColor = C.white,
                 fontSize = 10,
                 onClick = function(self)
-                    for _, d in ipairs(dingData_) do
-                        if d.status == "unread" then
-                            d.status = "read"
-                        end
-                    end
+                    DingtalkData.MarkAllDingRead()
                     refreshPage()
                 end,
             }
@@ -851,8 +794,7 @@ end
 -- 聊天详情页面
 -- ============================================================================
 function M.CreateChatPage(chatName, chatIconBg, onBack)
-    -- 根据聊天名称生成不同的模拟对话
-    local messages = M.GetChatMessages(chatName)
+    local messages = DingtalkData.GetChatMessages(chatName)
 
     local msgWidgets = {}
     for _, msg in ipairs(messages) do
@@ -896,7 +838,6 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
                         maxLines = 1,
                         textAlign = "center",
                     },
-                    -- 占位，保持标题居中
                     UI.Panel { width = 30, height = 30 },
                 },
             },
@@ -962,7 +903,7 @@ function CreateChatBubble(msg, chatIconBg)
     local alignRow = isSelf and "flex-end" or "flex-start"
 
     local avatarBg = isSelf and { 100, 160, 220, 255 } or (chatIconBg or { 80, 120, 200, 255 })
-    local avatarText = isSelf and "我" or string.sub(msg.sender, 1, 3)  -- utf8 first char(s)
+    local avatarText = isSelf and "我" or string.sub(msg.sender, 1, 3)
 
     local avatar = UI.Panel {
         width = 32, height = 32,
@@ -991,7 +932,6 @@ function CreateChatBubble(msg, chatIconBg)
         },
     }
 
-    -- 时间标签（偶尔显示）
     local timeWidget = nil
     if msg.showTime then
         timeWidget = UI.Panel {
@@ -1038,106 +978,17 @@ function CreateChatBubble(msg, chatIconBg)
     }
 end
 
---- 根据聊天名称返回模拟对话
-function M.GetChatMessages(chatName)
-    if chatName:find("通知群") then
-        return {
-            { sender = "系统", text = "-- 以下是新消息 --", showTime = true, time = "昨天 09:15" },
-            { sender = "王丹妮", text = "[@所有人] 各位老师好，学校将于本周五下午2:00在阶梯教室举行教学经验分享会，请大家准时参加。", showTime = false },
-            { sender = "李建国", text = "收到，准时参加", showTime = false },
-            { sender = "我", text = "好的，收到通知", showTime = true, time = "昨天 10:30" },
-            { sender = "王丹妮", text = "[倡议书] 关于节能减排的倡议，请各位老师查看并转发至班级群。", showTime = true, time = "今天 14:46" },
-        }
-    elseif chatName:find("班主任") then
-        return {
-            { sender = "邓星妹", text = "通知：学校定于明天上午8:30进行消防演练，请各班主任提前通知学生。", showTime = true, time = "今天 09:24" },
-            { sender = "张文华", text = "收到，我通知我们班", showTime = false },
-            { sender = "我", text = "好的，马上通知", showTime = false },
-            { sender = "邓星妹", text = "另外请各班统计参加演练的学生人数，下午3点前报给我", showTime = false },
-        }
-    elseif chatName:find("工会") then
-        return {
-            { sender = "古禹", text = "保利郦城有送一些本周末免费的游泳券，有需要的老师可以找我领取。", showTime = true, time = "3月18日 15:20" },
-            { sender = "刘芳", text = "我要两张，谢谢！", showTime = false },
-            { sender = "我", text = "还有吗？我也想要", showTime = false },
-            { sender = "古禹", text = "还有的，明天来办公室拿就行", showTime = false },
-        }
-    else
-        return {
-            { sender = "对方", text = "你好！", showTime = true, time = "今天 10:00" },
-            { sender = "我", text = "你好，有什么事吗？", showTime = false },
-            { sender = "对方", text = "想问一下关于明天活动的安排", showTime = false },
-            { sender = "我", text = "好的，我看一下安排表回复你", showTime = false },
-            { sender = "对方", text = "谢谢！不急", showTime = false },
-        }
-    end
-end
-
 -- ============================================================================
 -- 通讯录页面
 -- ============================================================================
 
--- 每个分类下的虚构人员数据
-local contactsData_ = {
-    ["组织架构"] = {
-        { name = "杨清", role = "信息技术系-教师", initial = "杨" },
-        { name = "王丹妮", role = "教务处-副主任", initial = "王" },
-        { name = "李建国", role = "校长", initial = "李" },
-        { name = "张美华", role = "财务处-会计", initial = "张" },
-        { name = "陈志强", role = "总务处-主任", initial = "陈" },
-        { name = "林小红", role = "办公室-秘书", initial = "林" },
-    },
-    ["教职工-信息技术系"] = {
-        { name = "杨清", role = "计算机应用-讲师", initial = "杨" },
-        { name = "黄伟明", role = "网络工程-副教授", initial = "黄" },
-        { name = "吴丽珍", role = "软件技术-讲师", initial = "吴" },
-        { name = "郑晓峰", role = "物联网-实验员", initial = "郑" },
-        { name = "周雅琴", role = "数字媒体-讲师", initial = "周" },
-    },
-    ["职工之家-工会-家长"] = {
-        { name = "古禹", role = "工会主席", initial = "古" },
-        { name = "邓星妹", role = "工会委员", initial = "邓" },
-        { name = "蔡明辉", role = "工会委员", initial = "蔡" },
-        { name = "刘秀英", role = "家委会代表", initial = "刘" },
-    },
-    ["三年级2023级-2...控与维护-老师"] = {
-        { name = "赵国栋", role = "班主任", initial = "赵" },
-        { name = "孙丽华", role = "专业课教师", initial = "孙" },
-        { name = "钱伟", role = "实训指导", initial = "钱" },
-    },
-    ["二年级2024级-...技术应用)-老师"] = {
-        { name = "杨清", role = "班主任", initial = "杨" },
-        { name = "许志豪", role = "专业课教师", initial = "许" },
-        { name = "何婷婷", role = "辅导员", initial = "何" },
-        { name = "陈大伟", role = "实训指导", initial = "陈" },
-    },
-    ["管理员助理"] = {
-        { name = "系统助理", role = "智能管理工具", initial = "管" },
-    },
-    ["AI助理"] = {
-        { name = "AI 助理", role = "智能问答服务", initial = "AI" },
-    },
-    ["集团上下级"] = {
-        { name = "泉州教育集团", role = "上级单位", initial = "泉" },
-        { name = "石狮职教中心", role = "平级单位", initial = "石" },
-        { name = "晋江工贸学校", role = "平级单位", initial = "晋" },
-    },
-    ["产业上下游"] = {
-        { name = "福建信息产业协会", role = "行业合作", initial = "信" },
-        { name = "泉州软件园", role = "实习基地", initial = "泉" },
-        { name = "石狮服装城", role = "校企合作", initial = "石" },
-        { name = "鹏山科技有限公司", role = "合作企业", initial = "鹏" },
-    },
-}
-
 --- 创建通讯录子页面：人员列表（深色主题）
 function M.CreateContactDetailPage(title, onBack)
-    local people = contactsData_[title] or {}
+    local contactsData = DingtalkData.GetContacts()
+    local people = contactsData[title] or {}
 
-    -- 构建人员列表
     local personItems = {}
     for i, person in ipairs(people) do
-        -- 随机但确定的头像颜色（基于名字）
         local colorSeed = string.byte(person.initial, 1) or 65
         local avatarColors = {
             { 80, 130, 220, 255 },
@@ -1160,7 +1011,6 @@ function M.CreateContactDetailPage(title, onBack)
             borderBottomWidth = (i < #people) and 1 or 0,
             borderBottomColor = { 50, 50, 60, 255 },
             children = {
-                -- 头像
                 UI.Panel {
                     width = 40, height = 40,
                     backgroundColor = avatarBg,
@@ -1171,7 +1021,6 @@ function M.CreateContactDetailPage(title, onBack)
                         UI.Label { text = person.initial, fontSize = 15, fontColor = { 255, 255, 255, 255 } },
                     },
                 },
-                -- 名字 + 角色
                 UI.Panel {
                     flexGrow = 1, flexShrink = 1,
                     flexDirection = "column",
@@ -1185,7 +1034,6 @@ function M.CreateContactDetailPage(title, onBack)
         }
     end
 
-    -- 空列表提示
     if #personItems == 0 then
         personItems[1] = UI.Panel {
             width = "100%",
@@ -1204,7 +1052,6 @@ function M.CreateContactDetailPage(title, onBack)
         backgroundColor = { 22, 22, 30, 255 },
         flexDirection = "column",
         children = {
-            -- 顶栏
             UI.Panel {
                 width = "100%",
                 height = 48,
@@ -1237,7 +1084,6 @@ function M.CreateContactDetailPage(title, onBack)
                     },
                 },
             },
-            -- 成员数量统计
             UI.Panel {
                 width = "100%",
                 paddingHorizontal = 16,
@@ -1250,7 +1096,6 @@ function M.CreateContactDetailPage(title, onBack)
                     },
                 },
             },
-            -- 人员列表
             UI.ScrollView {
                 width = "100%",
                 flexGrow = 1, flexBasis = 0,
@@ -1267,19 +1112,16 @@ function M.CreateContactDetailPage(title, onBack)
     }
 end
 
---- 创建通讯录主页面（底部 Tab 切换，非子页面）
+--- 创建通讯录主页面
 ---@param onNavigate fun(title: string) 点击子项时的导航回调
 function M.CreateContactsPage(onNavigate)
-    -- 组织架构子项
-    local orgItems = {
-        "组织架构",
-        "教职工-信息技术系",
-        "职工之家-工会-家长",
-        "三年级2023级-2...控与维护-老师",
-        "二年级2024级-...技术应用)-老师",
-    }
+    -- 从数据模块获取分组顺序，取前5个作为组织架构子项
+    local groupOrder = DingtalkData.GetContactGroupOrder()
+    local orgItems = {}
+    for i = 1, math.min(5, #groupOrder) do
+        orgItems[#orgItems + 1] = groupOrder[i]
+    end
 
-    -- 构建组织架构列表（可点击）
     local orgChildren = {}
     for i, name in ipairs(orgItems) do
         orgChildren[#orgChildren + 1] = UI.Button {
@@ -1323,7 +1165,7 @@ function M.CreateContactsPage(onNavigate)
         }
     end
 
-    -- 功能入口项（管理员助理、AI助理）— 可点击
+    -- 功能入口项
     local function CreateFeatureItem(iconText, iconBg, label)
         return UI.Button {
             width = "100%",
@@ -1366,7 +1208,7 @@ function M.CreateContactsPage(onNavigate)
         }
     end
 
-    -- 外部组织项（集团上下级、产业上下游）— 可点击
+    -- 外部组织项
     local function CreateExternalOrgItem(iconText, iconBg, label, subtitle)
         local innerChildren = {
             UI.Label {
@@ -1429,14 +1271,13 @@ function M.CreateContactsPage(onNavigate)
         }
     end
 
-    -- 整体页面（深色主题）
     return UI.Panel {
         width = "100%",
         height = "100%",
         backgroundColor = { 22, 22, 30, 255 },
         flexDirection = "column",
         children = {
-            -- 顶部区域：用户信息 + 添加按钮
+            -- 顶部区域：用户信息
             UI.Panel {
                 width = "100%",
                 paddingHorizontal = 12,
@@ -1446,7 +1287,6 @@ function M.CreateContactsPage(onNavigate)
                 alignItems = "center",
                 gap = 10,
                 children = {
-                    -- 头像
                     UI.Panel {
                         width = 44, height = 44,
                         backgroundColor = { 60, 60, 80, 255 },
@@ -1457,7 +1297,6 @@ function M.CreateContactsPage(onNavigate)
                             UI.Label { text = "杨", fontSize = 16, fontColor = { 200, 200, 220, 255 } },
                         },
                     },
-                    -- 名称 + 单位
                     UI.Panel {
                         flexDirection = "column",
                         gap = 2,
@@ -1468,7 +1307,6 @@ function M.CreateContactsPage(onNavigate)
                             UI.Label { text = "福建省石狮鹏山工贸学校", fontSize = 10, fontColor = { 140, 140, 150, 255 }, maxLines = 1 },
                         },
                     },
-                    -- 添加联系人
                     UI.Panel {
                         width = 28, height = 28,
                         justifyContent = "center",
@@ -1502,7 +1340,7 @@ function M.CreateContactsPage(onNavigate)
                                 overflow = "hidden",
                                 flexDirection = "column",
                                 children = {
-                                    -- 卡片头部：学校名 + 管理按钮
+                                    -- 卡片头部
                                     UI.Panel {
                                         width = "100%",
                                         paddingHorizontal = 16,
@@ -1511,7 +1349,6 @@ function M.CreateContactsPage(onNavigate)
                                         alignItems = "center",
                                         gap = 10,
                                         children = {
-                                            -- 学校 logo 占位
                                             UI.Panel {
                                                 width = 44, height = 44,
                                                 backgroundColor = { 50, 50, 65, 255 },
@@ -1524,7 +1361,6 @@ function M.CreateContactsPage(onNavigate)
                                                     UI.Label { text = "工贸", fontSize = 12, fontColor = { 150, 150, 170, 255 } },
                                                 },
                                             },
-                                            -- 名称 + 标签
                                             UI.Panel {
                                                 flexGrow = 1, flexShrink = 1,
                                                 flexDirection = "column",
@@ -1537,7 +1373,6 @@ function M.CreateContactsPage(onNavigate)
                                                         fontWeight = "bold",
                                                         maxLines = 1,
                                                     },
-                                                    -- 标签行
                                                     UI.Panel {
                                                         flexDirection = "row",
                                                         gap = 6,
@@ -1570,7 +1405,6 @@ function M.CreateContactsPage(onNavigate)
                                                     },
                                                 },
                                             },
-                                            -- 管理按钮
                                             UI.Panel {
                                                 paddingHorizontal = 14,
                                                 paddingVertical = 6,
@@ -1590,7 +1424,6 @@ function M.CreateContactsPage(onNavigate)
                                         flexDirection = "column",
                                         children = orgChildren,
                                     },
-                                    -- 管理员助理 & AI 助理
                                     CreateFeatureItem("管", { 120, 80, 200, 255 }, "管理员助理"),
                                     CreateFeatureItem("AI", { 50, 120, 220, 255 }, "AI助理"),
                                 },
@@ -1619,91 +1452,19 @@ function M.CreateContactsPage(onNavigate)
 end
 
 -- ============================================================================
--- 全局搜索接口
--- ============================================================================
-
---- 搜索所有数据，返回分类结果
----@param keyword string 搜索关键词
----@param chatList table 主页聊天列表（由 main.lua 传入）
----@return table { contacts, chats, todos, dings, calendar }
-function M.SearchAll(keyword, chatList)
-    if not keyword or keyword == "" then return nil end
-    local kw = string.lower(keyword)
-
-    local function match(text)
-        if not text then return false end
-        return string.find(string.lower(text), kw, 1, true) ~= nil
-    end
-
-    local results = { contacts = {}, chats = {}, todos = {}, dings = {}, calendar = {} }
-    local seenContact = {}  -- 去重
-
-    -- 1. 联系人
-    for group, people in pairs(contactsData_) do
-        for _, p in ipairs(people) do
-            if match(p.name) or match(p.role) or match(group) then
-                local key = p.name .. "|" .. (p.role or "")
-                if not seenContact[key] then
-                    seenContact[key] = true
-                    results.contacts[#results.contacts + 1] = {
-                        name = p.name, role = p.role, initial = p.initial, group = group,
-                    }
-                end
-            end
-        end
-    end
-
-    -- 2. 群聊 / 会话
-    for _, chat in ipairs(chatList or {}) do
-        if match(chat.name) or match(chat.msg) or match(chat.tag) then
-            results.chats[#results.chats + 1] = chat
-        end
-    end
-
-    -- 3. 待办
-    for _, todo in ipairs(todoData_) do
-        if match(todo.text) or match(todo.due) then
-            results.todos[#results.todos + 1] = todo
-        end
-    end
-
-    -- 4. DING
-    for _, d in ipairs(dingData_) do
-        if match(d.sender) or match(d.content) then
-            results.dings[#results.dings + 1] = d
-        end
-    end
-
-    -- 5. 日历日程
-    local calEvents = {
-        { title = "班主任例会", time = "09:00", desc = "今日日程" },
-        { title = "教研组活动", time = "14:00", desc = "明日日程" },
-        { title = "月度总结会", time = "10:00", desc = "3日后" },
-    }
-    for _, ev in ipairs(calEvents) do
-        if match(ev.title) then
-            results.calendar[#results.calendar + 1] = ev
-        end
-    end
-
-    return results
-end
-
--- ============================================================================
 -- 搜索页面
 -- ============================================================================
 
 --- 创建搜索页面（浅色主题，带实时搜索）
 ---@param onBack fun() 返回回调
----@param chatList table 主页聊天列表数据
-function M.CreateSearchPage(onBack, chatList, onNavigate)
+---@param onNavigate fun(target: string, data: table)|nil 搜索结果点击导航回调
+function M.CreateSearchPage(onBack, onNavigate)
     local resultContainer = UI.Panel {
         width = "100%",
         flexDirection = "column",
         paddingBottom = 20,
     }
 
-    -- 搜索状态文字
     local hintPanel = UI.Panel {
         width = "100%",
         paddingVertical = 60,
@@ -1727,7 +1488,7 @@ function M.CreateSearchPage(onBack, chatList, onNavigate)
             return
         end
 
-        local r = M.SearchAll(keyword, chatList)
+        local r = DingtalkData.SearchAll(keyword)
         if not r then return end
 
         local totalCount = #r.contacts + #r.chats + #r.todos + #r.dings + #r.calendar
@@ -1741,7 +1502,6 @@ function M.CreateSearchPage(onBack, chatList, onNavigate)
             return
         end
 
-        -- 分类标题
         local function SectionTitle(title, count)
             return UI.Panel {
                 width = "100%",
@@ -1760,7 +1520,6 @@ function M.CreateSearchPage(onBack, chatList, onNavigate)
             }
         end
 
-        -- 结果行（可点击）
         local function ResultRow(icon, iconBg, line1, line2, onClick)
             return UI.Button {
                 width = "100%",
@@ -1800,13 +1559,12 @@ function M.CreateSearchPage(onBack, chatList, onNavigate)
                             UI.Label { text = line2, fontSize = 10, fontColor = C.textSec, maxLines = 1 },
                         },
                     },
-                    -- 右箭头
                     UI.Label { text = ">", fontSize = 12, fontColor = C.textSec, pointerEvents = "none" },
                 },
             }
         end
 
-        -- 联系人 → 点击打开联系人详情（跳转到该联系人所在分组）
+        -- 联系人
         if #r.contacts > 0 then
             resultContainer:AddChild(SectionTitle("联系人", #r.contacts))
             for _, c in ipairs(r.contacts) do
@@ -1816,7 +1574,7 @@ function M.CreateSearchPage(onBack, chatList, onNavigate)
             end
         end
 
-        -- 群聊 → 点击打开聊天详情
+        -- 群聊
         if #r.chats > 0 then
             resultContainer:AddChild(SectionTitle("群聊 / 会话", #r.chats))
             for _, ch in ipairs(r.chats) do
@@ -1826,7 +1584,7 @@ function M.CreateSearchPage(onBack, chatList, onNavigate)
             end
         end
 
-        -- 待办 → 点击打开待办页面
+        -- 待办
         if #r.todos > 0 then
             resultContainer:AddChild(SectionTitle("待办事项", #r.todos))
             for _, td in ipairs(r.todos) do
@@ -1836,27 +1594,27 @@ function M.CreateSearchPage(onBack, chatList, onNavigate)
                     td.done and C.green or C.orange,
                     td.text,
                     status .. " · " .. pLabel .. " · " .. (td.due or ""),
-                    function() onNavigate("todo") end))
+                    function() onNavigate("todo", nil) end))
             end
         end
 
-        -- DING → 点击打开DING页面
+        -- DING
         if #r.dings > 0 then
             resultContainer:AddChild(SectionTitle("DING 消息", #r.dings))
             for _, d in ipairs(r.dings) do
                 local ic = d.urgent and "!" or "D"
                 local bg = d.urgent and C.red or C.blue
                 resultContainer:AddChild(ResultRow(ic, bg, d.sender .. " · " .. d.time, d.content,
-                    function() onNavigate("ding") end))
+                    function() onNavigate("ding", nil) end))
             end
         end
 
-        -- 日历日程 → 点击打开日历页面
+        -- 日历日程
         if #r.calendar > 0 then
             resultContainer:AddChild(SectionTitle("日程", #r.calendar))
             for _, ev in ipairs(r.calendar) do
                 resultContainer:AddChild(ResultRow("日", { 60, 160, 120, 255 }, ev.title, ev.time .. " · " .. ev.desc,
-                    function() onNavigate("calendar") end))
+                    function() onNavigate("calendar", nil) end))
             end
         end
     end
@@ -1925,7 +1683,6 @@ end
 -- ============================================================================
 
 function M.CreateMorePage()
-    -- 菜单项构建器
     local function MenuItem(iconText, iconBg, label, onClick)
         return UI.Button {
             width = "100%",
@@ -1972,7 +1729,6 @@ function M.CreateMorePage()
         }
     end
 
-    -- 内容容器（用于切换到关于子页面）
     local moreContainer = UI.Panel {
         width = "100%",
         height = "100%",
@@ -1994,7 +1750,6 @@ function M.CreateMorePage()
             backgroundColor = C.bg,
             flexDirection = "column",
             children = {
-                -- 顶栏
                 UI.Panel {
                     width = "100%",
                     height = 44,
@@ -2007,7 +1762,6 @@ function M.CreateMorePage()
                         UI.Label { text = "更多", fontSize = 15, fontColor = C.text },
                     },
                 },
-                -- 菜单列表
                 UI.ScrollView {
                     width = "100%",
                     flexGrow = 1, flexBasis = 0,
@@ -2018,7 +1772,6 @@ function M.CreateMorePage()
                             paddingTop = 10,
                             gap = 10,
                             children = {
-                                -- 第一组
                                 UI.Panel {
                                     width = "100%",
                                     flexDirection = "column",
@@ -2030,7 +1783,6 @@ function M.CreateMorePage()
                                         MenuItem("卡", { 60, 180, 100, 255 }, "名片"),
                                     },
                                 },
-                                -- 第二组
                                 UI.Panel {
                                     width = "100%",
                                     flexDirection = "column",
@@ -2040,7 +1792,6 @@ function M.CreateMorePage()
                                         MenuItem("帮", { 80, 150, 220, 255 }, "帮助与反馈"),
                                     },
                                 },
-                                -- 第三组
                                 UI.Panel {
                                     width = "100%",
                                     flexDirection = "column",
@@ -2086,7 +1837,6 @@ function M.CreateAboutPage(onBack)
         backgroundColor = C.bg,
         flexDirection = "column",
         children = {
-            -- 顶栏
             UI.Panel {
                 width = "100%",
                 height = 44,
@@ -2119,7 +1869,6 @@ function M.CreateAboutPage(onBack)
                 },
             },
 
-            -- 内容
             UI.ScrollView {
                 width = "100%",
                 flexGrow = 1, flexBasis = 0,
@@ -2152,7 +1901,6 @@ function M.CreateAboutPage(onBack)
                                 },
                             },
 
-                            -- 信息卡片
                             UI.Panel {
                                 width = "100%",
                                 backgroundColor = C.white,
@@ -2166,10 +1914,8 @@ function M.CreateAboutPage(onBack)
                                 },
                             },
 
-                            -- 分隔
                             UI.Panel { width = "100%", height = 10 },
 
-                            -- 更新日志卡片
                             UI.Panel {
                                 width = "100%",
                                 backgroundColor = C.white,
@@ -2180,7 +1926,7 @@ function M.CreateAboutPage(onBack)
                                 children = {
                                     UI.Label { text = "更新日志", fontSize = 13, fontColor = C.text, fontWeight = "bold" },
                                     UI.Label {
-                                        text = "· 新增通讯录页面，支持查看组织架构\n· 新增全局搜索功能\n· 待办支持自定义添加、完成切换\n· DING 支持一键已读\n· 新增\"关于\"页面",
+                                        text = "· 新增通讯录页面，支持查看组织架构\n· 新增全局搜索功能\n· 待办支持自定义添加、完成切换\n· DING 支持一键已读\n· 新增\"关于\"页面\n· 数据模块化，支持 CSV 调表",
                                         fontSize = 11,
                                         fontColor = C.textSec,
                                         lineHeight = 1.6,
@@ -2188,10 +1934,8 @@ function M.CreateAboutPage(onBack)
                                 },
                             },
 
-                            -- 分隔
                             UI.Panel { width = "100%", height = 10 },
 
-                            -- 致谢
                             UI.Panel {
                                 width = "100%",
                                 backgroundColor = C.white,
@@ -2210,7 +1954,6 @@ function M.CreateAboutPage(onBack)
                                 },
                             },
 
-                            -- 底部版权
                             UI.Panel {
                                 width = "100%",
                                 paddingVertical = 20,
