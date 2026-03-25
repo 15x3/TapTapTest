@@ -8,3 +8,4 @@ name,tag,tag_color,time,msg,badge,icon_color,icon_text
 示例7-复合场景,,gray,今天 08:00,老板: 早上好 今天有个重要客户...,3,dark_blue,示例7
 示例8-纯语气分支,,gray,20:00,朋友: 听说你最近工作挺忙的 还好吗？,1,green,示例8
 示例9-自动输入,,gray,09:00,队长: 准备出发了 大家确认一下装备,1,orange,示例9
+功能测试,测试,purple,10:00,系统: ━━━ 功能测试开始 ━━━━,0,yellow,测试
