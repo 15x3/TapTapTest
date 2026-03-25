@@ -20,14 +20,8 @@ local activeInputField_ = nil
 local activeSendFunc_ = nil
 local updateSubscribed_ = false
 
--- "随意敲打键盘" 自动输入功能（由 CSV wait_input 行的 text 字段控制启用）
-local ANY_KEYS = {
-    KEY_A, KEY_B, KEY_C, KEY_D, KEY_E, KEY_F, KEY_G, KEY_H, KEY_I, KEY_J,
-    KEY_K, KEY_L, KEY_M, KEY_N, KEY_O, KEY_P, KEY_Q, KEY_R, KEY_S, KEY_T,
-    KEY_U, KEY_V, KEY_W, KEY_X, KEY_Y, KEY_Z,
-    KEY_0, KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9,
-    KEY_SPACE, KEY_RETURN, KEY_COMMA, KEY_PERIOD,
-}
+-- 自动填充：记录上一次输入框文本，用于检测文本变化（兼容中文输入法）
+local lastInputText_ = ""
 
 local function ensureUpdate()
     if updateSubscribed_ then return end
@@ -41,17 +35,16 @@ function HandleDingtalkChatPageUpdate(eventType, eventData)
     if activeManager_ then
         activeManager_:Update(dt)
 
-        -- "随意敲打键盘"：仅当 CSV 启用自动输入时检测按键
+        -- "随意敲打键盘"：通过文本变化检测驱动自动填充（兼容中文输入法）
         if activeManager_:IsWaitingInput() and activeManager_:IsAutoFillEnabled() and activeInputField_ then
             local currentText = activeInputField_:GetValue() or ""
-            local lastFillLength = activeInputField_.lastFillLength or 0
-            if #currentText < lastFillLength then
-                activeManager_:ResetAutoFill()
-            end
-            for _, key in ipairs(ANY_KEYS) do
-                if input:GetKeyPress(key) then
-                    activeManager_:OnKeyPress()
-                    break
+            if currentText ~= lastInputText_ then
+                local result = activeManager_:OnTextChanged(currentText)
+                if result ~= nil then
+                    activeInputField_:SetValue(result)
+                    lastInputText_ = result
+                else
+                    lastInputText_ = currentText
                 end
             end
         end
@@ -77,6 +70,7 @@ function M.Create(chatName, chatIconBg, onBack)
     typingIndicator_ = nil
     activeInputField_ = nil
     activeSendFunc_ = nil
+    lastInputText_ = ""
 
     -- 消息列表容器（用于动态添加气泡）
     local msgListContainer = UI.Panel {
@@ -125,12 +119,6 @@ function M.Create(chatName, chatIconBg, onBack)
 
     local manager = ChatEventManager.Create(scenarioEvents, {
         onMessage = function(msg)
-            -- 如果消息没有时间戳，使用当前时间
-            if msg.time == "" then
-                local t = os.date("*t")
-                msg.time = string.format("%02d:%02d", t.hour, t.min)
-                msg.showTime = false
-            end
             addBubble(msg)
         end,
 
@@ -149,10 +137,8 @@ function M.Create(chatName, chatIconBg, onBack)
         end,
 
         onAutoFill = function(partialText, isComplete)
-            if activeInputField_ then
-                activeInputField_:SetValue(partialText)
-                activeInputField_.lastFillLength = #partialText
-            end
+            -- onAutoFill 现在主要由 OnTextChanged 内部驱动，
+            -- 此回调保留用于外部通知（如 UI 状态更新）
         end,
 
         onBranchHint = function(hints, timeout)
@@ -179,18 +165,15 @@ function M.Create(chatName, chatIconBg, onBack)
         local trimmed = text:match("^%s*(.-)%s*$")
         if trimmed == "" then return end
 
-        -- 获取当前时间
-        local t = os.date("*t")
-        local timeStr = string.format("%02d:%02d", t.hour, t.min)
-
         -- 创建"我"发的消息气泡
-        local newMsg = { sender = "我", text = trimmed, time = timeStr, showTime = true }
+        local newMsg = { sender = "我", text = trimmed }
         addBubble(newMsg)
 
         -- 清空输入框
         if inputField then
             inputField:Clear()
         end
+        lastInputText_ = ""
 
         -- 通知事件管理器：用户发了消息
         -- IsWaitingInput() 现在同时覆盖 wait_input 和 wait_choice 状态
@@ -246,6 +229,7 @@ function M.Create(chatName, chatIconBg, onBack)
                             typingIndicator_ = nil
                             activeInputField_ = nil
                             activeSendFunc_ = nil
+                            lastInputText_ = ""
                             onBack()
                         end,
                     },

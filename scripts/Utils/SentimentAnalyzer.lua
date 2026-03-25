@@ -201,7 +201,7 @@ end
 
 --- 检查文本是否匹配关键词列表
 ---@param text string 用户输入的文本
----@param keywords string 逗号分隔的关键词列表，如 "爬山,登山,运动"
+---@param keywords string 竖线分隔的关键词列表，如 "爬山|登山|运动"
 ---@return boolean 是否匹配
 ---@return number score 匹配得分（匹配到的关键词数量）
 function SA.MatchKeywords(text, keywords)
@@ -210,7 +210,7 @@ function SA.MatchKeywords(text, keywords)
     end
 
     local score = 0
-    for kw in keywords:gmatch("[^,]+") do
+    for kw in keywords:gmatch("[^|]+") do
         local trimmed = kw:match("^%s*(.-)%s*$")
         if trimmed and trimmed ~= "" then
             if text:find(trimmed, 1, true) then
@@ -226,9 +226,10 @@ end
 -- 分支选择
 -- ============================================================================
 
---- 解析分支选项（新格式）
---- 新格式: "关键词1,关键词2>跳转ID[:语气]; ..."
---- 示例: "爬山,登山,运动>ch_a1;海边,游泳>ch_b1:positive;休息,不去>ch_c1:negative"
+--- 解析分支选项
+--- 格式: "关键词1|关键词2>跳转ID[:语气]; ..."
+--- 示例: "爬山|登山|运动>ch_a1;海边|游泳>ch_b1:positive;休息|不去>ch_c1:negative"
+--- 注意: 关键词之间用竖线"|"分隔（避免与 CSV 逗号冲突），分支之间用分号";"分隔
 ---
 --- 语气标签（冒号后的部分）是可选的。如果指定了语气标签，
 --- 在关键词都不匹配的情况下，会尝试通过语气来匹配分支。
@@ -293,16 +294,17 @@ function SA.SelectBranch(userText, branches, defaultNextId)
         return bestKeywordMatch, "keyword"
     end
 
-    -- 第二优先级：语气匹配
-    local userSentiment = SA.Analyze(userText)
+    -- 第二优先级：语气匹配（已禁用）
+    -- 语气分析功能暂停，跳过语气匹配直接使用默认分支
+    -- local userSentiment = SA.Analyze(userText)
+    --
+    -- for _, branch in ipairs(branches) do
+    --     if branch.sentiment and branch.sentiment == userSentiment then
+    --         return branch.nextId, "sentiment"
+    --     end
+    -- end
 
-    for _, branch in ipairs(branches) do
-        if branch.sentiment and branch.sentiment == userSentiment then
-            return branch.nextId, "sentiment"
-        end
-    end
-
-    -- 第三优先级：默认分支
+    -- 第三优先级（当前为第二优先级）：默认分支
     if defaultNextId and defaultNextId ~= "" then
         return defaultNextId, "default"
     end

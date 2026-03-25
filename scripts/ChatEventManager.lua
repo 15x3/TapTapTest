@@ -55,10 +55,13 @@ function Manager.Create(events, callbacks)
 
     -- "随意敲打键盘" 自动输入功能
     -- 由策划在 CSV 的 wait_input 行的 text 字段控制
-    self.autoFillText = ""     -- 预设的自动填充文本（来自 CSV text 字段）
+    self.autoFillTexts = {}    -- 填充文本列表（支持多个分支轮换）
+    self.autoFillBranch = 0    -- 当前分支索引（1-based）
+    self.autoFillText = ""     -- 当前分支的填充文本
     self.autoFillIndex = 0     -- 当前已填充到第几个字符
-    self.autoFillTotal = 0     -- 总字符数（UTF-8）
+    self.autoFillTotal = 0     -- 当前分支总字符数（UTF-8）
     self.autoFillEnabled = false -- 当前 wait_input 是否启用自动填充
+    self.autoFillComplete = false -- 当前分支是否已填充完毕（保持静止）
 
     -- 立即处理所有 delay=0 的初始事件（历史消息）
     self:Process()
@@ -154,10 +157,8 @@ function Manager:Execute()
         -- 触发消息回调
         if self.callbacks.onMessage then
             self.callbacks.onMessage({
-                sender   = event.sender,
-                text     = event.text,
-                time     = event.time,
-                showTime = event.showTime,
+                sender = event.sender,
+                text   = event.text,
             })
         end
 
@@ -185,27 +186,29 @@ function Manager:Execute()
 
         -- "随意敲打键盘"：由策划在 CSV text 字段决定是否启用及内容
         local autoText = (event.text and event.text ~= "") and event.text or ""
-        self.autoFillText = autoText
-        self.autoFillIndex = 0
-        self.autoFillTotal = 0
         self.autoFillEnabled = (autoText ~= "")
 
         if self.autoFillEnabled then
-            -- 统计 UTF-8 字符数
-            local i = 1
-            while i <= #autoText do
-                local b = string.byte(autoText, i)
-                if b < 0x80 then
-                    i = i + 1
-                elseif b < 0xE0 then
-                    i = i + 2
-                elseif b < 0xF0 then
-                    i = i + 3
-                else
-                    i = i + 4
+            -- 解析填充文本列表（用竖线 | 分隔多个分支）
+            self.autoFillTexts = {}
+            for segment in autoText:gmatch("[^|]+") do
+                local trimmed = segment:match("^%s*(.-)%s*$")
+                if trimmed and trimmed ~= "" then
+                    self.autoFillTexts[#self.autoFillTexts + 1] = trimmed
                 end
-                self.autoFillTotal = self.autoFillTotal + 1
             end
+            if #self.autoFillTexts == 0 then
+                self.autoFillTexts = { autoText }
+            end
+            -- 初始化第一个分支
+            self:_initAutoFillBranch(1)
+        else
+            self.autoFillTexts = {}
+            self.autoFillBranch = 0
+            self.autoFillText = ""
+            self.autoFillIndex = 0
+            self.autoFillTotal = 0
+            self.autoFillComplete = false
         end
 
         return false
@@ -425,57 +428,138 @@ local function utf8Sub(str, n)
     return string.sub(str, 1, i - 1)
 end
 
+--- 计算 UTF-8 字符串的字符数
+---@param str string 原始字符串
+---@return number 字符数
+local function utf8Len(str)
+    if not str or str == "" then return 0 end
+    local count = 0
+    local i = 1
+    while i <= #str do
+        local b = string.byte(str, i)
+        if b < 0x80 then
+            i = i + 1
+        elseif b < 0xE0 then
+            i = i + 2
+        elseif b < 0xF0 then
+            i = i + 3
+        else
+            i = i + 4
+        end
+        count = count + 1
+    end
+    return count
+end
+
 --- 当前 wait_input 是否启用了自动填充
 ---@return boolean
 function Manager:IsAutoFillEnabled()
     return self.autoFillEnabled
 end
 
---- 处理"随意敲打键盘"的按键事件
---- 每次按键调用一次，逐步填充预设回复文本
---- 填充完成后再次按键会从头开始重新填充
----@return string|nil 当前部分填充的文本，nil 表示未启用或不在 wait_input 状态
-function Manager:OnKeyPress()
+--- 初始化指定分支的自动填充状态
+---@param branchIndex number 分支索引（1-based）
+function Manager:_initAutoFillBranch(branchIndex)
+    local total = #self.autoFillTexts
+    if total == 0 then
+        self.autoFillBranch = 0
+        self.autoFillText = ""
+        self.autoFillIndex = 0
+        self.autoFillTotal = 0
+        self.autoFillComplete = false
+        return
+    end
+    -- 确保索引在有效范围（循环）
+    branchIndex = ((branchIndex - 1) % total) + 1
+    self.autoFillBranch = branchIndex
+    self.autoFillText = self.autoFillTexts[branchIndex]
+    self.autoFillIndex = 0
+    self.autoFillTotal = utf8Len(self.autoFillText)
+    self.autoFillComplete = false
+end
+
+--- 文本变化回调（替代旧的 OnKeyPress）
+--- 由外部在检测到输入框文本发生变化时调用（兼容中文输入法）
+---
+--- 流程图逻辑：
+---   文本增长 → 推进自动填充（未完成时）
+---   已填充完毕 → 保持静止（不循环）
+---   文本部分删除 → 忽略，继续监听
+---   文本完全清空 → 轮换到下一个分支
+---
+---@param newText string 输入框当前的完整文本
+---@return string|nil 应设置到输入框的文本，nil 表示不干预
+function Manager:OnTextChanged(newText)
     if self.state ~= "wait_input" then return nil end
     if not self.autoFillEnabled then return nil end
     if self.autoFillText == "" then return nil end
 
-    -- 如果已经填充完毕，重新开始填充
-    if self.autoFillIndex >= self.autoFillTotal then
-        self.autoFillIndex = 0
+    local newLen = utf8Len(newText)
+    local currentFillText = utf8Sub(self.autoFillText, self.autoFillIndex)
+    local currentFillLen = utf8Len(currentFillText)
+
+    -- 情况 1: 文本完全清空 → 轮换到下一个分支
+    if newLen == 0 and self.autoFillIndex > 0 then
+        local nextBranch = self.autoFillBranch + 1
+        self:_initAutoFillBranch(nextBranch)
+        -- 通知外部清空状态（输入框已经是空的）
+        if self.callbacks.onAutoFill then
+            self.callbacks.onAutoFill("", false)
+        end
+        return ""
     end
 
-    -- 每次按键推进 1-2 个字符（随机，更自然）
-    local step = (self.autoFillIndex < 2) and 1 or math.random(1, 2)
-    self.autoFillIndex = math.min(self.autoFillIndex + step, self.autoFillTotal)
-
-    local partialText = utf8Sub(self.autoFillText, self.autoFillIndex)
-    local isComplete = self.autoFillIndex >= self.autoFillTotal
-
-    -- 通知外部更新输入框显示
-    if self.callbacks.onAutoFill then
-        self.callbacks.onAutoFill(partialText, isComplete)
+    -- 情况 2: 已填充完毕 → 保持静止，不再响应新增输入
+    if self.autoFillComplete then
+        -- 如果用户在完成后删除了部分文字（但没有全删），保持当前完整文本
+        if newLen < self.autoFillTotal then
+            local fullText = self.autoFillText
+            if self.callbacks.onAutoFill then
+                self.callbacks.onAutoFill(fullText, true)
+            end
+            return fullText
+        end
+        -- 用户继续打字或未变化，保持完整填充文本
+        return self.autoFillText
     end
 
-    return partialText
-end
+    -- 情况 3: 文本长度增加（用户输入了新字符）→ 推进填充
+    if newLen > currentFillLen then
+        -- 计算增加的字符数，推进相应步数
+        local delta = newLen - currentFillLen
+        -- 每次推进 1-2 个字符（随机，更自然），但至少 delta 个
+        local step = math.max(delta, (self.autoFillIndex < 2) and 1 or math.random(1, 2))
+        self.autoFillIndex = math.min(self.autoFillIndex + step, self.autoFillTotal)
 
---- 重置自动填充进度（当用户删除文字时调用）
-function Manager:ResetAutoFill()
-    self.autoFillIndex = 0
+        local partialText = utf8Sub(self.autoFillText, self.autoFillIndex)
+        local isComplete = self.autoFillIndex >= self.autoFillTotal
+
+        if isComplete then
+            self.autoFillComplete = true
+        end
+
+        if self.callbacks.onAutoFill then
+            self.callbacks.onAutoFill(partialText, isComplete)
+        end
+        return partialText
+    end
+
+    -- 情况 4: 文本长度减少但不为零（部分删除）→ 忽略，不干预
+    -- 继续监听后续输入
+    return nil
 end
 
 --- 获取自动填充是否已完成
 ---@return boolean
 function Manager:IsAutoFillComplete()
-    return self.autoFillEnabled and self.autoFillIndex >= self.autoFillTotal and self.autoFillTotal > 0
+    return self.autoFillComplete
 end
 
---- 获取自动填充进度 (0.0 ~ 1.0)
----@return number
-function Manager:GetAutoFillProgress()
-    if not self.autoFillEnabled or self.autoFillTotal <= 0 then return 0 end
-    return self.autoFillIndex / self.autoFillTotal
+--- 获取当前自动填充的完整文本（用于发送时获取最终文本）
+---@return string
+function Manager:GetAutoFillText()
+    if not self.autoFillEnabled then return "" end
+    return self.autoFillText
 end
 
 return Manager

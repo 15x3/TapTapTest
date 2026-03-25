@@ -16,8 +16,6 @@ ChatBubble.DINGTALK = {
     selfBubbleColor  = { 149, 215, 255, 255 },
     otherBubbleColor = { 255, 255, 255, 255 },
     textColor        = { 25, 25, 25, 255 },
-    timeColor        = { 153, 153, 153, 255 },
-    timeBgColor      = { 200, 200, 200, 100 },
     selfAvatarColor  = { 100, 160, 220, 255 },
     avatarRadius     = 6,
     bubbleRadius     = 8,
@@ -29,8 +27,6 @@ ChatBubble.WECHAT = {
     selfBubbleColor  = { 149, 215, 105, 255 },
     otherBubbleColor = { 255, 255, 255, 255 },
     textColor        = { 25, 25, 25, 255 },
-    timeColor        = { 153, 153, 153, 255 },
-    timeBgColor      = { 200, 200, 200, 80 },
     selfAvatarColor  = { 100, 160, 220, 255 },
     avatarRadius     = 4,
     bubbleRadius     = 4,
@@ -42,7 +38,7 @@ ChatBubble.WECHAT = {
 -- ============================================================================
 
 --- 创建聊天气泡
----@param msg table 消息数据 { sender, text, time, showTime }
+---@param msg table 消息数据 { sender, text }
 ---@param chatIconBg table|nil 对方头像背景色 RGBA
 ---@param style table|nil 风格配置（默认使用 DINGTALK）
 ---@return table UI 组件
@@ -92,48 +88,22 @@ function ChatBubble.Create(msg, chatIconBg, style)
         },
     }
 
-    local items = {}
-
-    -- 时间标签
-    if msg.showTime then
-        items[#items + 1] = UI.Panel {
-            width = "100%",
-            alignItems = "center",
-            marginBottom = 4,
-            children = {
-                UI.Panel {
-                    paddingHorizontal = 8,
-                    paddingVertical = 2,
-                    backgroundColor = style.timeBgColor,
-                    borderRadius = 4,
-                    children = {
-                        UI.Label {
-                            text = msg.time or "",
-                            fontSize = 9,
-                            fontColor = style.timeColor,
-                        },
-                    },
-                },
-            },
-        }
-    end
-
     -- 气泡行（头像 + 气泡，方向根据发送者不同）
     local rowChildren = isSelf and { bubble, avatar } or { avatar, bubble }
-
-    items[#items + 1] = UI.Panel {
-        width = "100%",
-        flexDirection = "row",
-        justifyContent = alignRow,
-        alignItems = "flex-start",
-        gap = 6,
-        children = rowChildren,
-    }
 
     return UI.Panel {
         width = "100%",
         flexDirection = "column",
-        children = items,
+        children = {
+            UI.Panel {
+                width = "100%",
+                flexDirection = "row",
+                justifyContent = alignRow,
+                alignItems = "flex-start",
+                gap = 6,
+                children = rowChildren,
+            },
+        },
     }
 end
 

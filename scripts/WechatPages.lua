@@ -20,14 +20,8 @@ local wxActiveInputField_ = nil    -- 当前聊天页的输入框引用
 local wxActiveSendFunc_ = nil      -- 当前聊天页的发送函数引用
 local wxPagesUpdateSubscribed_ = false  -- 是否已订阅 Update 事件
 
--- "随意敲打键盘" 自动输入功能（由 CSV wait_input 行的 text 字段控制启用）
-local ANY_KEYS = {
-    KEY_A, KEY_B, KEY_C, KEY_D, KEY_E, KEY_F, KEY_G, KEY_H, KEY_I, KEY_J,
-    KEY_K, KEY_L, KEY_M, KEY_N, KEY_O, KEY_P, KEY_Q, KEY_R, KEY_S, KEY_T,
-    KEY_U, KEY_V, KEY_W, KEY_X, KEY_Y, KEY_Z,
-    KEY_0, KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9,
-    KEY_SPACE, KEY_RETURN, KEY_COMMA, KEY_PERIOD,
-}
+-- 自动填充：记录上一次输入框文本，用于检测文本变化（兼容中文输入法）
+local wxLastInputText_ = ""
 
 --- 确保 WechatPages 模块的 Update 事件已订阅（只订阅一次）
 local function ensureWxPagesUpdate()
@@ -44,17 +38,16 @@ function HandleWechatPagesUpdate(eventType, eventData)
     if wxActiveManager_ then
         wxActiveManager_:Update(dt)
 
-        -- "随意敲打键盘"：仅当 CSV 启用自动输入时检测按键
+        -- "随意敲打键盘"：通过文本变化检测驱动自动填充（兼容中文输入法）
         if wxActiveManager_:IsWaitingInput() and wxActiveManager_:IsAutoFillEnabled() and wxActiveInputField_ then
             local currentText = wxActiveInputField_:GetValue() or ""
-            local lastFillLength = wxActiveInputField_.lastFillLength or 0
-            if #currentText < lastFillLength then
-                wxActiveManager_:ResetAutoFill()
-            end
-            for _, key in ipairs(ANY_KEYS) do
-                if input:GetKeyPress(key) then
-                    wxActiveManager_:OnKeyPress()
-                    break
+            if currentText ~= wxLastInputText_ then
+                local result = wxActiveManager_:OnTextChanged(currentText)
+                if result ~= nil then
+                    wxActiveInputField_:SetValue(result)
+                    wxLastInputText_ = result
+                else
+                    wxLastInputText_ = currentText
                 end
             end
         end
@@ -142,6 +135,7 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
     wxTypingLabel_ = nil
     wxActiveInputField_ = nil
     wxActiveSendFunc_ = nil
+    wxLastInputText_ = ""
 
     -- 消息列表容器（用于动态追加气泡）
     local msgListPanel = UI.Panel {
@@ -188,12 +182,6 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
 
     local manager = ChatEventManager.Create(scenarioEvents, {
         onMessage = function(msg)
-            -- 如果消息没有时间戳，使用当前时间
-            if msg.time == "" then
-                local t = os.date("*t")
-                msg.time = string.format("%02d:%02d", t.hour, t.min)
-                msg.showTime = false
-            end
             addBubble(msg)
         end,
 
@@ -212,10 +200,8 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
         end,
 
         onAutoFill = function(partialText, isComplete)
-            if wxActiveInputField_ then
-                wxActiveInputField_:SetValue(partialText)
-                wxActiveInputField_.lastFillLength = #partialText
-            end
+            -- onAutoFill 现在主要由 OnTextChanged 内部驱动，
+            -- 此回调保留用于外部通知（如 UI 状态更新）
         end,
 
         onBranchHint = function(hints, timeout)
@@ -243,19 +229,16 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
         local trimmed = text:match("^%s*(.-)%s*$")
         if trimmed == "" then return end
 
-        -- 获取当前时间
-        local t = os.date("*t")
-        local timeStr = string.format("%02d:%02d", t.hour, t.min)
-
         -- 更新数据层
         WechatData.UpdateChatPreview(chatName, trimmed)
 
         -- 创建"我"发的消息气泡
-        local newMsg = { sender = "我", text = trimmed, time = timeStr, showTime = true }
+        local newMsg = { sender = "我", text = trimmed }
         addBubble(newMsg)
 
         -- 清空输入框状态
         inputValue = ""
+        wxLastInputText_ = ""
         if M._activeTextField then
             M._activeTextField:SetValue("")
         end
@@ -345,6 +328,7 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
                 wxTypingLabel_ = nil
                 wxActiveInputField_ = nil
                 wxActiveSendFunc_ = nil
+                wxLastInputText_ = ""
                 onBack()
             end),
             -- 消息列表

@@ -34,6 +34,31 @@ local cachedCalendar_ = nil
 -- 聊天列表
 -- ============================================================================
 
+--- 加载场景事件原始数据（内部缓存）
+local function ensureScenarios()
+    if cachedScenarios_ then return end
+
+    local _, rows = loadCSV("data/chat_scenarios.csv")
+    cachedScenarios_ = {}
+
+    for _, row in ipairs(rows) do
+        cachedScenarios_[#cachedScenarios_ + 1] = {
+            id         = row.id or "",
+            chat_match = row.chat_match or "*",
+            delay      = tonumber(row.delay) or 0,
+            type       = row.type or "message",
+            sender     = row.sender or "",
+            text       = row.text or "",
+            time       = row.time or "",
+            showTime   = (row.show_time == "yes"),
+            next       = row.next or "",
+            options    = row.options or "",
+            timeout    = tonumber(row.timeout) or 0,
+            default_next = row.default_next or "",
+        }
+    end
+end
+
 --- 获取聊天列表
 ---@return table[] 每项包含 { name, tag, tagColor, time, msg, badge, iconBg, iconText }
 function Data.GetChats()
@@ -42,12 +67,16 @@ function Data.GetChats()
     local _, rows = loadCSV("data/chats.csv")
     cachedChats_ = {}
 
+    -- 记录已有聊天名称，用于后续自动补全
+    local existingNames = {}
+
     for _, row in ipairs(rows) do
         local badgeNum = tonumber(row.badge) or 0
         local iconText = (row.icon_text or ""):gsub("|", "\n")
+        local chatName = row.name or ""
 
         cachedChats_[#cachedChats_ + 1] = {
-            name     = row.name or "",
+            name     = chatName,
             tag      = row.tag or "",
             tagColor = resolveColor(row.tag_color),
             time     = row.time or "",
@@ -56,6 +85,50 @@ function Data.GetChats()
             iconBg   = resolveColor(row.icon_color) or { 100, 100, 120, 255 },
             iconText = iconText,
         }
+        existingNames[chatName] = true
+    end
+
+    -- 自动补全：扫描场景 CSV 中的 chat_match，为缺失的聊天自动生成入口
+    ensureScenarios()
+    local seenMatch = {}
+    for _, ev in ipairs(cachedScenarios_) do
+        local cm = ev.chat_match
+        if cm ~= "*" and cm ~= "" and not seenMatch[cm] then
+            seenMatch[cm] = true
+            -- 检查是否已有对应的聊天入口（子字符串匹配，与 GetChatScenario 逻辑一致）
+            local found = false
+            for name, _ in pairs(existingNames) do
+                if name:find(cm, 1, true) then
+                    found = true
+                    break
+                end
+            end
+            if not found then
+                -- 从该场景的第一条 message 事件提取预览信息
+                local firstMsg, firstTime = "", ""
+                local firstSender = ""
+                for _, sev in ipairs(cachedScenarios_) do
+                    if sev.chat_match == cm and sev.type == "message" and sev.sender ~= "" then
+                        firstSender = sev.sender
+                        firstMsg = sev.text
+                        firstTime = sev.time
+                        break
+                    end
+                end
+                local preview = firstSender ~= "" and (firstSender .. ": " .. firstMsg) or firstMsg
+                cachedChats_[#cachedChats_ + 1] = {
+                    name     = cm,
+                    tag      = "",
+                    tagColor = resolveColor("gray"),
+                    time     = firstTime,
+                    msg      = preview,
+                    badge    = 0,
+                    iconBg   = resolveColor("gray") or { 100, 100, 120, 255 },
+                    iconText = cm:sub(1, 4),
+                }
+                existingNames[cm] = true
+            end
+        end
     end
 
     return cachedChats_
@@ -131,31 +204,6 @@ end
 -- ============================================================================
 -- 聊天场景事件（事件驱动架构）
 -- ============================================================================
-
---- 加载场景事件原始数据（内部缓存）
-local function ensureScenarios()
-    if cachedScenarios_ then return end
-
-    local _, rows = loadCSV("data/chat_scenarios.csv")
-    cachedScenarios_ = {}
-
-    for _, row in ipairs(rows) do
-        cachedScenarios_[#cachedScenarios_ + 1] = {
-            id         = row.id or "",
-            chat_match = row.chat_match or "*",
-            delay      = tonumber(row.delay) or 0,
-            type       = row.type or "message",
-            sender     = row.sender or "",
-            text       = row.text or "",
-            time       = row.time or "",
-            showTime   = (row.show_time == "yes"),
-            next       = row.next or "",
-            options    = row.options or "",
-            timeout    = tonumber(row.timeout) or 0,
-            default_next = row.default_next or "",
-        }
-    end
-end
 
 --- 根据聊天名称获取对应的场景事件序列
 ---@param chatName string 聊天名称
