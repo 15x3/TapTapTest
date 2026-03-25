@@ -20,7 +20,7 @@ local activeInputField_ = nil
 local activeSendFunc_ = nil
 local updateSubscribed_ = false
 
--- "随意敲打键盘"功能：用于检测任意按键
+-- "随意敲打键盘" 自动输入功能（由 CSV wait_input 行的 text 字段控制启用）
 local ANY_KEYS = {
     KEY_A, KEY_B, KEY_C, KEY_D, KEY_E, KEY_F, KEY_G, KEY_H, KEY_I, KEY_J,
     KEY_K, KEY_L, KEY_M, KEY_N, KEY_O, KEY_P, KEY_Q, KEY_R, KEY_S, KEY_T,
@@ -40,16 +40,14 @@ function HandleDingtalkChatPageUpdate(eventType, eventData)
     local dt = eventData["TimeStep"]:GetFloat()
     if activeManager_ then
         activeManager_:Update(dt)
-        if activeManager_:IsWaitingInput() and activeInputField_ then
-            -- 检测用户是否删除了文字（如果输入框文本比上次填充的短）
+
+        -- "随意敲打键盘"：仅当 CSV 启用自动输入时检测按键
+        if activeManager_:IsWaitingInput() and activeManager_:IsAutoFillEnabled() and activeInputField_ then
             local currentText = activeInputField_:GetValue() or ""
             local lastFillLength = activeInputField_.lastFillLength or 0
             if #currentText < lastFillLength then
-                -- 用户删除了文字，重置填充进度
                 activeManager_:ResetAutoFill()
             end
-
-            -- 检测按键事件
             for _, key in ipairs(ANY_KEYS) do
                 if input:GetKeyPress(key) then
                     activeManager_:OnKeyPress()
@@ -151,12 +149,18 @@ function M.Create(chatName, chatIconBg, onBack)
         end,
 
         onAutoFill = function(partialText, isComplete)
-            -- 更新输入框显示正在填充的文本
             if activeInputField_ then
                 activeInputField_:SetValue(partialText)
-                -- 保存当前填充长度，用于检测用户是否删除了文字
                 activeInputField_.lastFillLength = #partialText
             end
+        end,
+
+        onBranchHint = function(hints, timeout)
+            -- 分支等待输入时的提示（可选：显示关键词提示给玩家）
+        end,
+
+        onBranchMatched = function(nextId, matchType)
+            -- 分支匹配完成后的回调（可选：显示匹配方式提示）
         end,
 
         onDone = function()
@@ -189,6 +193,7 @@ function M.Create(chatName, chatIconBg, onBack)
         end
 
         -- 通知事件管理器：用户发了消息
+        -- IsWaitingInput() 现在同时覆盖 wait_input 和 wait_choice 状态
         if activeManager_ and activeManager_:IsWaitingInput() then
             activeManager_:OnUserMessage(trimmed)
         end

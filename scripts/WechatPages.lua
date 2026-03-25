@@ -20,7 +20,7 @@ local wxActiveInputField_ = nil    -- 当前聊天页的输入框引用
 local wxActiveSendFunc_ = nil      -- 当前聊天页的发送函数引用
 local wxPagesUpdateSubscribed_ = false  -- 是否已订阅 Update 事件
 
--- "随意敲打键盘"功能：用于检测任意按键
+-- "随意敲打键盘" 自动输入功能（由 CSV wait_input 行的 text 字段控制启用）
 local ANY_KEYS = {
     KEY_A, KEY_B, KEY_C, KEY_D, KEY_E, KEY_F, KEY_G, KEY_H, KEY_I, KEY_J,
     KEY_K, KEY_L, KEY_M, KEY_N, KEY_O, KEY_P, KEY_Q, KEY_R, KEY_S, KEY_T,
@@ -44,12 +44,17 @@ function HandleWechatPagesUpdate(eventType, eventData)
     if wxActiveManager_ then
         wxActiveManager_:Update(dt)
 
-        -- "随意敲打键盘"：在 wait_input 状态下检测任意按键
-        if wxActiveManager_:IsWaitingInput() then
+        -- "随意敲打键盘"：仅当 CSV 启用自动输入时检测按键
+        if wxActiveManager_:IsWaitingInput() and wxActiveManager_:IsAutoFillEnabled() and wxActiveInputField_ then
+            local currentText = wxActiveInputField_:GetValue() or ""
+            local lastFillLength = wxActiveInputField_.lastFillLength or 0
+            if #currentText < lastFillLength then
+                wxActiveManager_:ResetAutoFill()
+            end
             for _, key in ipairs(ANY_KEYS) do
                 if input:GetKeyPress(key) then
                     wxActiveManager_:OnKeyPress()
-                    break  -- 每帧只处理一次按键
+                    break
                 end
             end
         end
@@ -207,11 +212,18 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
         end,
 
         onAutoFill = function(partialText, isComplete)
-            -- 更新输入框显示正在填充的文本
             if wxActiveInputField_ then
                 wxActiveInputField_:SetValue(partialText)
+                wxActiveInputField_.lastFillLength = #partialText
             end
-            -- 填充完成后不自动发送，等待玩家按回车或点击发送按钮
+        end,
+
+        onBranchHint = function(hints, timeout)
+            -- 分支等待输入时的提示
+        end,
+
+        onBranchMatched = function(nextId, matchType)
+            -- 分支匹配完成后的回调
         end,
 
         onDone = function()
@@ -254,6 +266,16 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
         end
     end
 
+    -- + 号按钮（输入为空时显示）
+    local plusBtn = UI.Panel {
+        width = 28, height = 28,
+        justifyContent = "center",
+        alignItems = "center",
+        children = {
+            UI.Label { text = "+", fontSize = 18, fontColor = WX.textSec },
+        },
+    }
+
     -- 发送按钮（初始隐藏，输入时显示）
     local sendBtn = UI.Button {
         width = 44, height = 28,
@@ -273,17 +295,8 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
                 M._activeTextField:SetValue("")
             end
             self:SetVisible(false)
+            plusBtn:SetVisible(true)
         end,
-    }
-
-    -- + 号按钮（输入为空时显示）
-    local plusBtn = UI.Panel {
-        width = 28, height = 28,
-        justifyContent = "center",
-        alignItems = "center",
-        children = {
-            UI.Label { text = "+", fontSize = 18, fontColor = WX.textSec },
-        },
     }
 
     -- 输入框

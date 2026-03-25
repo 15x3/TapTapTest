@@ -5,20 +5,33 @@
 -- 状态流:
 --   processing → delay → (execute) → processing / wait_input / wait_choice / done
 --
+-- 分支选择模式:
+--   type=choice 时，不再弹出选项按钮让玩家点选，
+--   而是进入 wait_input 状态等待玩家输入文本，
+--   然后通过关键词匹配 + 语气分析自动选择分支。
+--
+-- 自动输入功能（"随意敲打键盘"）:
+--   由策划在 CSV 的 wait_input 行的 text 字段控制:
+--     text 非空 → 启用自动输入，内容为 text 的值
+--     text 为空 → 不启用，玩家自由打字
+--
 -- 回调接口:
 --   onMessage(msg)   -- 收到一条消息事件（含 sender/text/time/showTime）
 --   onTyping(sender)  -- 对方正在输入（用于显示 "xxx 正在输入..."）
 --   onTypingEnd()     -- 输入指示结束
---   onChoice(options)  -- 弹出选项（暂未使用，预留）
+--   onAutoFill(partialText, isComplete) -- 自动填充进度更新
+--   onBranchHint(hint) -- 分支匹配结果提示（关键词/语气/默认）
 --   onDone()           -- 全部事件播放完毕
 -- ============================================================================
+
+local SentimentAnalyzer = require("Utils.SentimentAnalyzer")
 
 local Manager = {}
 Manager.__index = Manager
 
 --- 创建事件管理器实例
 ---@param events table[] 事件序列（从 DingtalkData.GetChatScenario 获取）
----@param callbacks table 回调函数表 { onMessage, onTyping, onTypingEnd, onChoice, onDone, onAutoFill }
+---@param callbacks table 回调函数表 { onMessage, onTyping, onTypingEnd, onBranchHint, onDone }
 ---@return table 管理器实例
 function Manager.Create(events, callbacks)
     local self = setmetatable({}, Manager)
@@ -36,10 +49,16 @@ function Manager.Create(events, callbacks)
     self.timeoutTarget = 0     -- 超时目标时间（秒）
     self.timeoutNextId = ""    -- 超时跳转目标
 
-    -- "随意敲打键盘"相关
-    self.autoFillText = ""     -- 预设的自动填充文本
+    -- 分支选择相关（关键词+语气模式）
+    self.pendingBranches = nil  -- 当前待匹配的分支选项（choice 事件解析后存储）
+    self.pendingDefaultNext = "" -- choice 事件的 default_next
+
+    -- "随意敲打键盘" 自动输入功能
+    -- 由策划在 CSV 的 wait_input 行的 text 字段控制
+    self.autoFillText = ""     -- 预设的自动填充文本（来自 CSV text 字段）
     self.autoFillIndex = 0     -- 当前已填充到第几个字符
-    self.autoFillTotal = 0     -- 总字符数
+    self.autoFillTotal = 0     -- 总字符数（UTF-8）
+    self.autoFillEnabled = false -- 当前 wait_input 是否启用自动填充
 
     -- 立即处理所有 delay=0 的初始事件（历史消息）
     self:Process()
@@ -59,7 +78,7 @@ function Manager:Update(dt)
             self:Execute()
         end
     elseif self.state == "wait_choice" and self.timeoutTarget > 0 then
-        -- 超时逻辑：选项等待超时后自动跳转
+        -- 超时逻辑：等待超时后自动跳转
         self.timeoutTimer = self.timeoutTimer + dt
         if self.timeoutTimer >= self.timeoutTarget then
             self.timeoutTimer = 0
@@ -164,16 +183,18 @@ function Manager:Execute()
         -- 等待用户输入
         self.state = "wait_input"
 
-        -- 准备"随意敲打键盘"的预设回复文本
-        local expectedReply = self:GetExpectedReply()
-        self.autoFillText = expectedReply
+        -- "随意敲打键盘"：由策划在 CSV text 字段决定是否启用及内容
+        local autoText = (event.text and event.text ~= "") and event.text or ""
+        self.autoFillText = autoText
         self.autoFillIndex = 0
-        -- 统计 UTF-8 字符数（而非字节数）
         self.autoFillTotal = 0
-        if expectedReply ~= "" then
+        self.autoFillEnabled = (autoText ~= "")
+
+        if self.autoFillEnabled then
+            -- 统计 UTF-8 字符数
             local i = 1
-            while i <= #expectedReply do
-                local b = string.byte(expectedReply, i)
+            while i <= #autoText do
+                local b = string.byte(autoText, i)
                 if b < 0x80 then
                     i = i + 1
                 elseif b < 0xE0 then
@@ -190,8 +211,20 @@ function Manager:Execute()
         return false
 
     elseif eventType == "choice" then
-        -- 等待用户选择
+        -- ======================================================================
+        -- 关键词+语气分支选择模式
+        -- 不再弹出选项按钮，而是进入 wait_choice 状态等待用户输入文本，
+        -- 用户发送消息后通过 OnUserMessage 自动匹配分支。
+        -- ======================================================================
         self.state = "wait_choice"
+
+        -- 解析分支选项并存储
+        if event.options then
+            self.pendingBranches = SentimentAnalyzer.ParseBranchOptions(event.options)
+        else
+            self.pendingBranches = {}
+        end
+        self.pendingDefaultNext = event.default_next or ""
 
         -- 初始化超时计时器
         local timeout = tonumber(event.timeout) or 0
@@ -206,17 +239,16 @@ function Manager:Execute()
             self.timeoutNextId = ""
         end
 
-        if self.callbacks.onChoice and event.options then
-            -- 解析 options: "text1>next1;text2>next2"
-            local opts = {}
-            for part in event.options:gmatch("[^;]+") do
-                local text, nextId = part:match("^(.-)>(.+)$")
-                if text then
-                    opts[#opts + 1] = { text = text, nextId = nextId }
-                end
+        -- 通知前端：进入分支等待输入（可选显示提示）
+        if self.callbacks.onBranchHint then
+            -- 提取关键词提示
+            local hints = {}
+            for _, branch in ipairs(self.pendingBranches) do
+                hints[#hints + 1] = branch.keywords
             end
-            self.callbacks.onChoice(opts, timeout)
+            self.callbacks.onBranchHint(hints, timeout)
         end
+
         return false
 
     else
@@ -251,18 +283,50 @@ function Manager:JumpTo(eventId)
     self.index = self.index + 1
 end
 
---- 用户发送了消息（恢复 wait_input 状态）
+--- 用户发送了消息
+--- 同时处理 wait_input 和 wait_choice 两种状态
 ---@param text string 用户输入的文本
 function Manager:OnUserMessage(text)
-    if self.state ~= "wait_input" then return end
+    if self.state == "wait_input" then
+        -- 普通等待输入：直接推进
+        self.index = self.index + 1
+        self.state = "processing"
+        self:Process()
 
-    -- 推进到下一个事件，继续处理
-    self.index = self.index + 1
-    self.state = "processing"
-    self:Process()
+    elseif self.state == "wait_choice" then
+        -- 分支选择：通过关键词/语气分析选择分支
+        local nextId, matchType = SentimentAnalyzer.SelectBranch(
+            text,
+            self.pendingBranches,
+            self.pendingDefaultNext
+        )
+
+        -- 通知前端匹配结果（用于调试或显示提示）
+        if self.callbacks.onBranchMatched then
+            self.callbacks.onBranchMatched(nextId, matchType)
+        end
+
+        -- 清理分支状态
+        self.pendingBranches = nil
+        self.pendingDefaultNext = ""
+        self.timeoutTimer = 0
+        self.timeoutTarget = 0
+        self.timeoutNextId = ""
+
+        -- 跳转到匹配的分支
+        if nextId then
+            self:JumpTo(nextId)
+        else
+            -- 完全无匹配，顺序推进
+            self.index = self.index + 1
+        end
+
+        self.state = "processing"
+        self:Process()
+    end
 end
 
---- 用户选择了选项（恢复 wait_choice 状态）
+--- 用户选择了选项（保留兼容，但在新模式下不再使用）
 ---@param index number 选项索引（从 1 开始）
 function Manager:OnSelectOption(index)
     if self.state ~= "wait_choice" then return end
@@ -276,6 +340,10 @@ function Manager:OnSelectOption(index)
             if optIdx == index then
                 local _, nextId = part:match("^(.-)>(.+)$")
                 if nextId then
+                    -- 清理分支状态
+                    self.pendingBranches = nil
+                    self.pendingDefaultNext = ""
+
                     self:JumpTo(nextId)
                     self.state = "processing"
                     self:Process()
@@ -286,6 +354,8 @@ function Manager:OnSelectOption(index)
     end
 
     -- fallback: 顺序推进
+    self.pendingBranches = nil
+    self.pendingDefaultNext = ""
     self.index = self.index + 1
     self.state = "processing"
     self:Process()
@@ -303,13 +373,13 @@ function Manager:IsDone()
     return self.state == "done"
 end
 
---- 是否正在等待用户输入
+--- 是否正在等待用户输入（wait_input 或 wait_choice 都算）
 ---@return boolean
 function Manager:IsWaitingInput()
-    return self.state == "wait_input"
+    return self.state == "wait_input" or self.state == "wait_choice"
 end
 
---- 是否正在等待用户选择
+--- 是否正在等待用户选择（保留兼容）
 ---@return boolean
 function Manager:IsWaitingChoice()
     return self.state == "wait_choice"
@@ -325,32 +395,11 @@ function Manager:GetTimeoutRemaining()
 end
 
 -- ============================================================================
--- "随意敲打键盘"功能
+-- "随意敲打键盘" 自动输入功能
+-- 由策划在 CSV 的 wait_input 行的 text 字段控制：
+--   text 非空 → 启用，玩家按任意键逐字填充 text 的内容
+--   text 为空 → 不启用，玩家自由打字
 -- ============================================================================
-
---- 获取当前 wait_input 事件对应的预设回复文本
---- 查找策略：从当前 wait_input 后续事件中找 sender="我" 的 message
---- 如果找不到，则返回一个默认的随机短句
----@return string 预设回复文本
-function Manager:GetExpectedReply()
-    if self.index > #self.events then return "" end
-
-    -- 从当前事件的下一个开始向后搜索
-    for i = self.index + 1, #self.events do
-        local ev = self.events[i]
-        if ev.type == "message" and ev.sender == "我" then
-            return ev.text or ""
-        end
-        -- 如果遇到另一个 wait_input / choice / wait_choice 则停止搜索
-        if ev.type == "wait_input" or ev.type == "choice" then
-            break
-        end
-    end
-
-    -- 没有找到预设回复，返回默认短句
-    local defaults = { "好的", "嗯嗯", "收到", "了解", "知道了", "OK" }
-    return defaults[math.random(#defaults)]
-end
 
 --- UTF-8 安全截取前 n 个字符
 ---@param str string 原始字符串
@@ -376,15 +425,22 @@ local function utf8Sub(str, n)
     return string.sub(str, 1, i - 1)
 end
 
+--- 当前 wait_input 是否启用了自动填充
+---@return boolean
+function Manager:IsAutoFillEnabled()
+    return self.autoFillEnabled
+end
+
 --- 处理"随意敲打键盘"的按键事件
 --- 每次按键调用一次，逐步填充预设回复文本
 --- 填充完成后再次按键会从头开始重新填充
----@return string|nil 当前部分填充的文本（用于实时更新输入框），nil 表示不在 wait_input 状态
+---@return string|nil 当前部分填充的文本，nil 表示未启用或不在 wait_input 状态
 function Manager:OnKeyPress()
     if self.state ~= "wait_input" then return nil end
+    if not self.autoFillEnabled then return nil end
     if self.autoFillText == "" then return nil end
 
-    -- 如果已经填充完毕，重新开始填充（轮换选项）
+    -- 如果已经填充完毕，重新开始填充
     if self.autoFillIndex >= self.autoFillTotal then
         self.autoFillIndex = 0
     end
@@ -394,10 +450,11 @@ function Manager:OnKeyPress()
     self.autoFillIndex = math.min(self.autoFillIndex + step, self.autoFillTotal)
 
     local partialText = utf8Sub(self.autoFillText, self.autoFillIndex)
+    local isComplete = self.autoFillIndex >= self.autoFillTotal
 
     -- 通知外部更新输入框显示
     if self.callbacks.onAutoFill then
-        self.callbacks.onAutoFill(partialText, self.autoFillIndex >= self.autoFillTotal)
+        self.callbacks.onAutoFill(partialText, isComplete)
     end
 
     return partialText
@@ -411,13 +468,13 @@ end
 --- 获取自动填充是否已完成
 ---@return boolean
 function Manager:IsAutoFillComplete()
-    return self.autoFillIndex >= self.autoFillTotal and self.autoFillTotal > 0
+    return self.autoFillEnabled and self.autoFillIndex >= self.autoFillTotal and self.autoFillTotal > 0
 end
 
 --- 获取自动填充进度 (0.0 ~ 1.0)
 ---@return number
 function Manager:GetAutoFillProgress()
-    if self.autoFillTotal <= 0 then return 0 end
+    if not self.autoFillEnabled or self.autoFillTotal <= 0 then return 0 end
     return self.autoFillIndex / self.autoFillTotal
 end
 

@@ -63,6 +63,8 @@ function M.Create()
         flexDirection = "column",
     }
 
+    local buildMainMenu -- 前向声明
+
     local function showAbout()
         moreContainer:ClearChildren()
         moreContainer:AddChild(AboutPage.Create(function()
@@ -71,7 +73,7 @@ function M.Create()
         end))
     end
 
-    function buildMainMenu()
+    buildMainMenu = function()
         return UI.Panel {
             width = "100%",
             height = "100%",
