@@ -378,11 +378,16 @@ end
 
 --- 处理"随意敲打键盘"的按键事件
 --- 每次按键调用一次，逐步填充预设回复文本
---- 当填充完成时自动发送消息并推进事件链
+--- 填充完成后再次按键会从头开始重新填充
 ---@return string|nil 当前部分填充的文本（用于实时更新输入框），nil 表示不在 wait_input 状态
 function Manager:OnKeyPress()
     if self.state ~= "wait_input" then return nil end
     if self.autoFillText == "" then return nil end
+
+    -- 如果已经填充完毕，重新开始填充（轮换选项）
+    if self.autoFillIndex >= self.autoFillTotal then
+        self.autoFillIndex = 0
+    end
 
     -- 每次按键推进 1-2 个字符（随机，更自然）
     local step = (self.autoFillIndex < 2) and 1 or math.random(1, 2)
@@ -395,15 +400,12 @@ function Manager:OnKeyPress()
         self.callbacks.onAutoFill(partialText, self.autoFillIndex >= self.autoFillTotal)
     end
 
-    -- 检查是否已填充完毕
-    if self.autoFillIndex >= self.autoFillTotal then
-        -- 填充完成，自动发送并推进事件链
-        -- 短暂延迟后由外部调用 OnUserMessage 触发发送
-        -- 这里只返回完整文本，由外部决定何时发送
-        return partialText
-    end
-
     return partialText
+end
+
+--- 重置自动填充进度（当用户删除文字时调用）
+function Manager:ResetAutoFill()
+    self.autoFillIndex = 0
 end
 
 --- 获取自动填充是否已完成

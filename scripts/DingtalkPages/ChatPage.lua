@@ -40,7 +40,16 @@ function HandleDingtalkChatPageUpdate(eventType, eventData)
     local dt = eventData["TimeStep"]:GetFloat()
     if activeManager_ then
         activeManager_:Update(dt)
-        if activeManager_:IsWaitingInput() then
+        if activeManager_:IsWaitingInput() and activeInputField_ then
+            -- 检测用户是否删除了文字（如果输入框文本比上次填充的短）
+            local currentText = activeInputField_:GetValue() or ""
+            local lastFillLength = activeInputField_.lastFillLength or 0
+            if #currentText < lastFillLength then
+                -- 用户删除了文字，重置填充进度
+                activeManager_:ResetAutoFill()
+            end
+
+            -- 检测按键事件
             for _, key in ipairs(ANY_KEYS) do
                 if input:GetKeyPress(key) then
                     activeManager_:OnKeyPress()
@@ -145,8 +154,9 @@ function M.Create(chatName, chatIconBg, onBack)
             -- 更新输入框显示正在填充的文本
             if activeInputField_ then
                 activeInputField_:SetValue(partialText)
+                -- 保存当前填充长度，用于检测用户是否删除了文字
+                activeInputField_.lastFillLength = #partialText
             end
-            -- 填充完成后不自动发送，等待玩家按回车或点击发送按钮
         end,
 
         onDone = function()

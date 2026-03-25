@@ -79,7 +79,7 @@ function ChatBubble.Create(msg, chatIconBg, style)
 
     local bubble = UI.Panel {
         maxWidth = "70%",
-        flexShrink = 1,
+        flexShrink = 0,
         backgroundColor = bubbleBg,
         borderRadius = style.bubbleRadius,
         paddingHorizontal = 10,
@@ -90,7 +90,8 @@ function ChatBubble.Create(msg, chatIconBg, style)
                 fontSize = 11,
                 fontColor = style.textColor,
                 whiteSpace = "normal",
-                flexShrink = 1,
+                flexShrink = 0,
+                wordWrap = true,
             },
         },
     }
