@@ -3,86 +3,14 @@
 -- 功能: 从 CSV 文件加载数据，提供统一的数据访问接口
 -- ============================================================================
 
+local CSVParser = require "Utils.CSVParser"
+local Colors = require "Utils.Colors"
+
 local Data = {}
 
--- ============================================================================
--- CSV 解析器（复用钉钉的解析逻辑）
--- ============================================================================
-
-local function readFile(path)
-    if not cache:Exists(path) then
-        print("[WechatData] 文件不存在: " .. path)
-        return nil
-    end
-    local file = cache:GetFile(path)
-    if not file then
-        print("[WechatData] 无法打开文件: " .. path)
-        return nil
-    end
-    local content = file:ReadString()
-    file:Close()
-    return content
-end
-
-local function parseCSV(content)
-    if not content or content == "" then return {}, {} end
-    local lines = {}
-    for line in content:gmatch("[^\r\n]+") do
-        if line:match("%S") then
-            lines[#lines + 1] = line
-        end
-    end
-    if #lines < 1 then return {}, {} end
-
-    local headers = {}
-    for field in lines[1]:gmatch("([^,]*)") do
-        headers[#headers + 1] = field:match("^%s*(.-)%s*$")
-    end
-
-    local rows = {}
-    for i = 2, #lines do
-        local row = {}
-        local colIdx = 1
-        for field in lines[i]:gmatch("([^,]*)") do
-            local key = headers[colIdx]
-            if key then
-                row[key] = field:match("^%s*(.-)%s*$")
-            end
-            colIdx = colIdx + 1
-        end
-        rows[#rows + 1] = row
-    end
-    return headers, rows
-end
-
-local function loadCSV(path)
-    local content = readFile(path)
-    if not content then return {}, {} end
-    return parseCSV(content)
-end
-
--- ============================================================================
--- 颜色预设
--- ============================================================================
-
-local COLOR_PRESETS = {
-    blue       = { 48, 118, 255, 255 },
-    red        = { 220, 60, 60, 255 },
-    gray       = { 120, 120, 140, 255 },
-    orange     = { 255, 140, 0, 255 },
-    green      = { 7, 193, 96, 255 },
-    dark_blue  = { 40, 120, 200, 255 },
-    light_blue = { 100, 160, 220, 255 },
-    purple     = { 150, 80, 200, 255 },
-    pink       = { 180, 130, 170, 255 },
-    teal       = { 60, 140, 180, 255 },
-    yellow     = { 230, 190, 50, 255 },
-}
-
-local function resolveColor(name)
-    if not name or name == "" then return nil end
-    return COLOR_PRESETS[name]
-end
+-- 便捷别名
+local loadCSV = function(path) return CSVParser.Load(path, "[WechatData]") end
+local resolveColor = Colors.Resolve
 
 -- ============================================================================
 -- 数据缓存
