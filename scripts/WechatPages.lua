@@ -5,8 +5,40 @@
 
 local UI = require("urhox-libs/UI")
 local WechatData = require("WechatData")
+local ChatEventManager = require("ChatEventManager")
 
 local M = {}
+
+-- 模块级变量：事件系统状态
+local wxActiveManager_ = nil       -- 当前活跃的 ChatEventManager 实例
+local wxPendingScroll_ = nil        -- 需要滚动到底部的 ScrollView 引用
+local wxTypingIndicator_ = nil      -- "正在输入"指示器 widget 引用
+local wxTypingLabel_ = nil          -- 输入指示标签
+local wxPagesUpdateSubscribed_ = false  -- 是否已订阅 Update 事件
+
+--- 确保 WechatPages 模块的 Update 事件已订阅（只订阅一次）
+local function ensureWxPagesUpdate()
+    if wxPagesUpdateSubscribed_ then return end
+    wxPagesUpdateSubscribed_ = true
+    SubscribeToEvent("Update", "HandleWechatPagesUpdate")
+end
+
+--- Update 事件处理：驱动事件管理器 + 延迟滚动
+function HandleWechatPagesUpdate(eventType, eventData)
+    local dt = eventData["TimeStep"]:GetFloat()
+
+    -- 驱动活跃的事件管理器
+    if wxActiveManager_ then
+        wxActiveManager_:Update(dt)
+    end
+
+    -- 处理延迟滚动
+    if wxPendingScroll_ then
+        local sv = wxPendingScroll_
+        wxPendingScroll_ = nil
+        sv:ScrollToBottom()
+    end
+end
 
 -- 微信色彩体系
 local WX = {
@@ -73,22 +105,13 @@ end
 -- ============================================================================
 
 function M.CreateChatPage(chatName, chatIconBg, onBack)
-    local messages = WechatData.GetChatMessages(chatName)
-    local runtimeMsgs = WechatData.GetRuntimeMessages(chatName)
+    -- 确保 Update 订阅已注册
+    ensureWxPagesUpdate()
 
-    -- 合并 CSV 消息 + 运行时消息
-    local allMessages = {}
-    for _, msg in ipairs(messages) do
-        allMessages[#allMessages + 1] = msg
-    end
-    for _, msg in ipairs(runtimeMsgs) do
-        allMessages[#allMessages + 1] = msg
-    end
-
-    local msgWidgets = {}
-    for _, msg in ipairs(allMessages) do
-        msgWidgets[#msgWidgets + 1] = M._createChatBubble(msg, chatIconBg)
-    end
+    -- 停止之前的管理器
+    wxActiveManager_ = nil
+    wxTypingIndicator_ = nil
+    wxTypingLabel_ = nil
 
     -- 消息列表容器（用于动态追加气泡）
     local msgListPanel = UI.Panel {
@@ -97,7 +120,6 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
         paddingVertical = 10,
         paddingHorizontal = 10,
         gap = 10,
-        children = msgWidgets,
     }
 
     local scrollView = UI.ScrollView {
@@ -107,8 +129,91 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
         children = { msgListPanel },
     }
 
+    -- "正在输入"指示器
+    local typingLabel = UI.Label {
+        text = "",
+        fontSize = 10,
+        fontColor = WX.textSec,
+    }
+    wxTypingLabel_ = typingLabel
+
+    local typingPanel = UI.Panel {
+        width = "100%",
+        height = 0,   -- 默认隐藏
+        paddingHorizontal = 14,
+        justifyContent = "center",
+        overflow = "hidden",
+        children = { typingLabel },
+    }
+    wxTypingIndicator_ = typingPanel
+
+    --- 添加一条消息气泡到列表
+    local function addBubble(msg)
+        msgListPanel:AddChild(M._createChatBubble(msg, chatIconBg))
+        wxPendingScroll_ = scrollView
+    end
+
+    -- 加载场景事件并创建管理器
+    local scenarioEvents = WechatData.GetChatScenario(chatName)
+
+    local manager = ChatEventManager.Create(scenarioEvents, {
+        onMessage = function(msg)
+            -- 如果消息没有时间戳，使用当前时间
+            if msg.time == "" then
+                local t = os.date("*t")
+                msg.time = string.format("%02d:%02d", t.hour, t.min)
+                msg.showTime = false
+            end
+            addBubble(msg)
+        end,
+
+        onTyping = function(sender)
+            if wxTypingIndicator_ then
+                wxTypingLabel_:SetText(sender .. " 正在输入...")
+                wxTypingIndicator_:SetHeight(20)
+            end
+        end,
+
+        onTypingEnd = function()
+            if wxTypingIndicator_ then
+                wxTypingLabel_:SetText("")
+                wxTypingIndicator_:SetHeight(0)
+            end
+        end,
+
+        onDone = function()
+            -- 所有事件播放完毕
+        end,
+    })
+
+    wxActiveManager_ = manager
+    wxPendingScroll_ = scrollView
+
     -- 输入状态
     local inputValue = ""
+
+    -- 发送消息
+    local function sendMessage(text)
+        if not text or text == "" then return end
+        local trimmed = text:match("^%s*(.-)%s*$")
+        if trimmed == "" then return end
+
+        -- 获取当前时间
+        local t = os.date("*t")
+        local timeStr = string.format("%02d:%02d", t.hour, t.min)
+
+        -- 更新数据层
+        WechatData.UpdateChatPreview(chatName, trimmed)
+
+        -- 创建"我"发的消息气泡
+        local newMsg = { sender = "我", text = trimmed, time = timeStr, showTime = true }
+        addBubble(newMsg)
+
+        -- 通知事件管理器：用户发了消息
+        if wxActiveManager_ and wxActiveManager_:IsWaitingInput() then
+            wxActiveManager_:OnUserMessage(trimmed)
+        end
+    end
 
     -- 发送按钮（初始隐藏，输入时显示）
     local sendBtn = UI.Button {
@@ -123,21 +228,12 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
         visible = false,
         onClick = function(self)
             if inputValue == "" then return end
-            -- 存储消息到数据层
-            WechatData.AddMessage(chatName, "我", inputValue)
-            WechatData.UpdateChatPreview(chatName, inputValue)
-            -- 追加气泡到列表
-            local newMsg = { sender = "我", text = inputValue, time = "", showTime = false }
-            msgListPanel:AddChild(M._createChatBubble(newMsg, chatIconBg))
-            -- 清空输入框
+            sendMessage(inputValue)
             inputValue = ""
             if M._activeTextField then
                 M._activeTextField:SetValue("")
             end
-            -- 隐藏发送按钮
             self:SetVisible(false)
-            -- 滚动到底部
-            scrollView:ScrollToBottom()
         end,
     }
 
@@ -169,23 +265,16 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
         end,
         onSubmit = function(self, value)
             if value == "" then return end
-            WechatData.AddMessage(chatName, "我", value)
-            WechatData.UpdateChatPreview(chatName, value)
-            local newMsg = { sender = "我", text = value, time = "", showTime = false }
-            msgListPanel:AddChild(M._createChatBubble(newMsg, chatIconBg))
+            sendMessage(value)
             inputValue = ""
             self:SetValue("")
             sendBtn:SetVisible(false)
             plusBtn:SetVisible(true)
-            scrollView:ScrollToBottom()
         end,
     }
 
     -- 缓存当前活跃的输入框引用
     M._activeTextField = textField
-
-    -- 初始滚动到底部
-    scrollView:ScrollToBottom()
 
     return UI.Panel {
         width = "100%",
@@ -193,9 +282,17 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
         backgroundColor = WX.chatBg,
         flexDirection = "column",
         children = {
-            CreateHeader(chatName, onBack),
+            CreateHeader(chatName, function()
+                -- 离开聊天页面时清理管理器
+                wxActiveManager_ = nil
+                wxTypingIndicator_ = nil
+                wxTypingLabel_ = nil
+                onBack()
+            end),
             -- 消息列表
             scrollView,
+            -- 正在输入指示
+            typingPanel,
             -- 底部输入栏
             UI.Panel {
                 width = "100%",
@@ -209,9 +306,7 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
                 borderTopWidth = 1,
                 borderTopColor = { 210, 210, 210, 255 },
                 children = {
-                    -- 输入框
                     textField,
-                    -- 表情按钮
                     UI.Panel {
                         width = 28, height = 28,
                         justifyContent = "center",
@@ -220,7 +315,6 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
                             UI.Label { text = ":)", fontSize = 14, fontColor = WX.textSec },
                         },
                     },
-                    -- + 号（无输入时）/ 发送按钮（有输入时）
                     plusBtn,
                     sendBtn,
                 },

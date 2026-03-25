@@ -6,8 +6,40 @@
 
 local UI = require("urhox-libs/UI")
 local DingtalkData = require("DingtalkData")
+local ChatEventManager = require("ChatEventManager")
 
 local M = {}
+
+-- 模块级变量：事件系统状态
+local activeManager_ = nil       -- 当前活跃的 ChatEventManager 实例
+local pendingScroll_ = nil        -- 需要滚动到底部的 ScrollView 引用
+local typingIndicator_ = nil      -- "正在输入"指示器 widget 引用
+local pagesUpdateSubscribed_ = false  -- 是否已订阅 Update 事件
+
+--- 确保 Pages 模块的 Update 事件已订阅（只订阅一次）
+local function ensurePagesUpdate()
+    if pagesUpdateSubscribed_ then return end
+    pagesUpdateSubscribed_ = true
+
+    SubscribeToEvent("Update", "HandleDingtalkPagesUpdate")
+end
+
+--- Update 事件处理：驱动事件管理器 + 延迟滚动
+function HandleDingtalkPagesUpdate(eventType, eventData)
+    local dt = eventData["TimeStep"]:GetFloat()
+
+    -- 驱动活跃的事件管理器
+    if activeManager_ then
+        activeManager_:Update(dt)
+    end
+
+    -- 处理延迟滚动
+    if pendingScroll_ then
+        local sv = pendingScroll_
+        pendingScroll_ = nil
+        sv:ScrollToBottom()
+    end
+end
 
 -- 通用颜色
 local C = {
@@ -791,10 +823,15 @@ function M.CreateDingPage(onBack)
 end
 
 -- ============================================================================
--- 聊天详情页面
+-- 聊天详情页面（事件驱动架构）
 -- ============================================================================
 function M.CreateChatPage(chatName, chatIconBg, onBack)
-    local messages = DingtalkData.GetChatMessages(chatName)
+    -- 确保 Update 订阅已注册
+    ensurePagesUpdate()
+
+    -- 停止之前的管理器
+    activeManager_ = nil
+    typingIndicator_ = nil
 
     -- 消息列表容器（用于动态添加气泡）
     local msgListContainer = UI.Panel {
@@ -805,11 +842,6 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
         gap = 10,
     }
 
-    -- 填充初始消息
-    for _, msg in ipairs(messages) do
-        msgListContainer:AddChild(CreateChatBubble(msg, chatIconBg))
-    end
-
     local scrollView = UI.ScrollView {
         width = "100%",
         flexGrow = 1,
@@ -817,12 +849,69 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
         children = { msgListContainer },
     }
 
+    -- "正在输入"指示器
+    local typingLabel = UI.Label {
+        text = "",
+        fontSize = 10,
+        fontColor = C.textSec,
+    }
+    local typingPanel = UI.Panel {
+        width = "100%",
+        height = 0,   -- 默认隐藏
+        paddingHorizontal = 14,
+        justifyContent = "center",
+        overflow = "hidden",
+        children = { typingLabel },
+    }
+    typingIndicator_ = typingPanel
+
     -- 输入框引用
     ---@type any
     local inputField = nil
 
-    -- 延迟滚动标记（等布局更新后再滚动）
-    local pendingScrollToBottom = false
+    --- 添加一条消息气泡到列表，并请求延迟滚动
+    local function addBubble(msg)
+        msgListContainer:AddChild(CreateChatBubble(msg, chatIconBg))
+        pendingScroll_ = scrollView
+    end
+
+    -- 加载场景事件并创建管理器
+    local scenarioEvents = DingtalkData.GetChatScenario(chatName)
+
+    local manager = ChatEventManager.Create(scenarioEvents, {
+        onMessage = function(msg)
+            -- 如果消息没有时间戳，使用当前时间
+            if msg.time == "" then
+                local t = os.date("*t")
+                msg.time = string.format("%02d:%02d", t.hour, t.min)
+                msg.showTime = false
+            end
+            addBubble(msg)
+        end,
+
+        onTyping = function(sender)
+            if typingIndicator_ then
+                typingLabel:SetText(sender .. " 正在输入...")
+                typingIndicator_:SetHeight(20)
+            end
+        end,
+
+        onTypingEnd = function()
+            if typingIndicator_ then
+                typingLabel:SetText("")
+                typingIndicator_:SetHeight(0)
+            end
+        end,
+
+        onDone = function()
+            -- 所有事件播放完毕，不做特殊处理
+        end,
+    })
+
+    activeManager_ = manager
+
+    -- 初始历史消息加载完后，滚动到底部
+    pendingScroll_ = scrollView
 
     -- 发送消息
     local function sendMessage(text)
@@ -836,24 +925,18 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
 
         -- 创建"我"发的消息气泡
         local newMsg = { sender = "我", text = trimmed, time = timeStr, showTime = true }
-        msgListContainer:AddChild(CreateChatBubble(newMsg, chatIconBg))
+        addBubble(newMsg)
 
         -- 清空输入框
         if inputField then
             inputField:Clear()
         end
 
-        -- 标记需要滚动到底部（下一帧布局更新后执行）
-        pendingScrollToBottom = true
-    end
-
-    -- 订阅 Update 事件处理延迟滚动
-    SubscribeToEvent("Update", function(eventType, eventData)
-        if pendingScrollToBottom then
-            pendingScrollToBottom = false
-            scrollView:ScrollToBottom()
+        -- 通知事件管理器：用户发了消息
+        if activeManager_ and activeManager_:IsWaitingInput() then
+            activeManager_:OnUserMessage(trimmed)
         end
-    end)
+    end
 
     -- 创建输入框
     inputField = UI.TextField {
@@ -892,7 +975,12 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
                         text = "<",
                         textColor = C.text,
                         fontSize = 14,
-                        onClick = function(self) onBack() end,
+                        onClick = function(self)
+                            -- 离开聊天页面时清理管理器
+                            activeManager_ = nil
+                            typingIndicator_ = nil
+                            onBack()
+                        end,
                     },
                     UI.Label {
                         text = chatName,
@@ -908,6 +996,8 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
             },
             -- 消息列表
             scrollView,
+            -- 正在输入指示
+            typingPanel,
             -- 输入栏
             UI.Panel {
                 width = "100%",

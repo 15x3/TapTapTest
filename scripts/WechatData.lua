@@ -93,7 +93,7 @@ local cachedChats_ = nil
 ---@type table[]|nil
 local cachedContacts_ = nil
 ---@type table[]|nil
-local cachedChatMessages_ = nil
+local cachedScenarios_ = nil
 
 -- ============================================================================
 -- 聊天列表
@@ -184,54 +184,74 @@ function Data.SearchContacts(keyword)
 end
 
 -- ============================================================================
--- 聊天消息
+-- 聊天场景事件（事件驱动架构）
 -- ============================================================================
 
-local function ensureChatMessages()
-    if cachedChatMessages_ then return end
-    local _, rows = loadCSV("data/wechat_messages.csv")
-    cachedChatMessages_ = {}
+local function ensureScenarios()
+    if cachedScenarios_ then return end
+    local _, rows = loadCSV("data/wechat_scenarios.csv")
+    cachedScenarios_ = {}
     for _, row in ipairs(rows) do
-        cachedChatMessages_[#cachedChatMessages_ + 1] = {
+        cachedScenarios_[#cachedScenarios_ + 1] = {
+            id         = row.id or "",
             chat_match = row.chat_match or "*",
+            delay      = tonumber(row.delay) or 0,
+            type       = row.type or "message",
             sender     = row.sender or "",
             text       = row.text or "",
             time       = row.time or "",
             showTime   = (row.show_time == "yes"),
+            next       = row.next or "",
+            options    = row.options or "",
+            timeout    = tonumber(row.timeout) or 0,
+            default_next = row.default_next or "",
         }
     end
 end
 
-function Data.GetChatMessages(chatName)
-    ensureChatMessages()
+--- 根据聊天名称获取对应的场景事件序列
+---@param chatName string 聊天名称
+---@return table[] 事件数组
+function Data.GetChatScenario(chatName)
+    ensureScenarios()
     local matched = {}
     local hasSpecific = false
 
-    for _, msg in ipairs(cachedChatMessages_) do
-        if msg.chat_match ~= "*" and chatName:find(msg.chat_match, 1, true) then
-            matched[#matched + 1] = {
-                sender   = msg.sender,
-                text     = msg.text,
-                time     = msg.time,
-                showTime = msg.showTime,
-            }
+    for _, ev in ipairs(cachedScenarios_) do
+        if ev.chat_match ~= "*" and chatName:find(ev.chat_match, 1, true) then
+            matched[#matched + 1] = ev
             hasSpecific = true
         end
     end
 
     if not hasSpecific then
-        for _, msg in ipairs(cachedChatMessages_) do
-            if msg.chat_match == "*" then
-                matched[#matched + 1] = {
-                    sender   = msg.sender,
-                    text     = msg.text,
-                    time     = msg.time,
-                    showTime = msg.showTime,
-                }
+        for _, ev in ipairs(cachedScenarios_) do
+            if ev.chat_match == "*" then
+                matched[#matched + 1] = ev
             end
         end
     end
 
+    return matched
+end
+
+-- ============================================================================
+-- 聊天消息（从场景数据派生，供搜索等功能使用）
+-- ============================================================================
+
+function Data.GetChatMessages(chatName)
+    local events = Data.GetChatScenario(chatName)
+    local matched = {}
+    for _, ev in ipairs(events) do
+        if ev.type == "message" then
+            matched[#matched + 1] = {
+                sender   = ev.sender,
+                text     = ev.text,
+                time     = ev.time,
+                showTime = ev.showTime,
+            }
+        end
+    end
     return matched
 end
 
