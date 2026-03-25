@@ -6,6 +6,8 @@
 local UI = require("urhox-libs/UI")
 local WechatData = require("WechatData")
 local ChatEventManager = require("ChatEventManager")
+local ChatBubble = require("Utils.ChatBubble")
+local Colors = require("Utils.Colors")
 
 local M = {}
 
@@ -14,7 +16,18 @@ local wxActiveManager_ = nil       -- 当前活跃的 ChatEventManager 实例
 local wxPendingScroll_ = nil        -- 需要滚动到底部的 ScrollView 引用
 local wxTypingIndicator_ = nil      -- "正在输入"指示器 widget 引用
 local wxTypingLabel_ = nil          -- 输入指示标签
+local wxActiveInputField_ = nil    -- 当前聊天页的输入框引用
+local wxActiveSendFunc_ = nil      -- 当前聊天页的发送函数引用
 local wxPagesUpdateSubscribed_ = false  -- 是否已订阅 Update 事件
+
+-- "随意敲打键盘"功能：用于检测任意按键
+local ANY_KEYS = {
+    KEY_A, KEY_B, KEY_C, KEY_D, KEY_E, KEY_F, KEY_G, KEY_H, KEY_I, KEY_J,
+    KEY_K, KEY_L, KEY_M, KEY_N, KEY_O, KEY_P, KEY_Q, KEY_R, KEY_S, KEY_T,
+    KEY_U, KEY_V, KEY_W, KEY_X, KEY_Y, KEY_Z,
+    KEY_0, KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9,
+    KEY_SPACE, KEY_RETURN, KEY_COMMA, KEY_PERIOD,
+}
 
 --- 确保 WechatPages 模块的 Update 事件已订阅（只订阅一次）
 local function ensureWxPagesUpdate()
@@ -23,13 +36,23 @@ local function ensureWxPagesUpdate()
     SubscribeToEvent("Update", "HandleWechatPagesUpdate")
 end
 
---- Update 事件处理：驱动事件管理器 + 延迟滚动
+--- Update 事件处理：驱动事件管理器 + 延迟滚动 + 随意敲打键盘
 function HandleWechatPagesUpdate(eventType, eventData)
     local dt = eventData["TimeStep"]:GetFloat()
 
     -- 驱动活跃的事件管理器
     if wxActiveManager_ then
         wxActiveManager_:Update(dt)
+
+        -- "随意敲打键盘"：在 wait_input 状态下检测任意按键
+        if wxActiveManager_:IsWaitingInput() then
+            for _, key in ipairs(ANY_KEYS) do
+                if input:GetKeyPress(key) then
+                    wxActiveManager_:OnKeyPress()
+                    break  -- 每帧只处理一次按键
+                end
+            end
+        end
     end
 
     -- 处理延迟滚动
@@ -112,6 +135,8 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
     wxActiveManager_ = nil
     wxTypingIndicator_ = nil
     wxTypingLabel_ = nil
+    wxActiveInputField_ = nil
+    wxActiveSendFunc_ = nil
 
     -- 消息列表容器（用于动态追加气泡）
     local msgListPanel = UI.Panel {
@@ -149,7 +174,7 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
 
     --- 添加一条消息气泡到列表
     local function addBubble(msg)
-        msgListPanel:AddChild(M._createChatBubble(msg, chatIconBg))
+        msgListPanel:AddChild(ChatBubble.Create(msg, chatIconBg, ChatBubble.WECHAT))
         wxPendingScroll_ = scrollView
     end
 
@@ -181,6 +206,17 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
             end
         end,
 
+        onAutoFill = function(partialText, isComplete)
+            -- 更新输入框显示正在填充的文本
+            if wxActiveInputField_ then
+                wxActiveInputField_:SetValue(partialText)
+            end
+            -- 填充完成后自动发送
+            if isComplete and wxActiveSendFunc_ then
+                wxActiveSendFunc_(partialText)
+            end
+        end,
+
         onDone = function()
             -- 所有事件播放完毕
         end,
@@ -208,6 +244,12 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
         -- 创建"我"发的消息气泡
         local newMsg = { sender = "我", text = trimmed, time = timeStr, showTime = true }
         addBubble(newMsg)
+
+        -- 清空输入框状态
+        inputValue = ""
+        if M._activeTextField then
+            M._activeTextField:SetValue("")
+        end
 
         -- 通知事件管理器：用户发了消息
         if wxActiveManager_ and wxActiveManager_:IsWaitingInput() then
@@ -276,6 +318,10 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
     -- 缓存当前活跃的输入框引用
     M._activeTextField = textField
 
+    -- 存储引用供"随意敲打键盘"功能使用
+    wxActiveInputField_ = textField
+    wxActiveSendFunc_ = sendMessage
+
     return UI.Panel {
         width = "100%",
         height = "100%",
@@ -287,6 +333,8 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
                 wxActiveManager_ = nil
                 wxTypingIndicator_ = nil
                 wxTypingLabel_ = nil
+                wxActiveInputField_ = nil
+                wxActiveSendFunc_ = nil
                 onBack()
             end),
             -- 消息列表
@@ -323,79 +371,7 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
     }
 end
 
---- 聊天气泡
-function M._createChatBubble(msg, chatIconBg)
-    local isSelf = msg.sender == "我"
-    local bubbleBg = isSelf and WX.selfBubble or WX.white
-    local alignRow = isSelf and "flex-end" or "flex-start"
 
-    local avatarBg = isSelf and { 100, 160, 220, 255 } or (chatIconBg or { 80, 120, 200, 255 })
-    local avatarText = isSelf and "我" or string.sub(msg.sender, 1, 3)
-
-    local avatar = UI.Panel {
-        width = 34, height = 34,
-        backgroundColor = avatarBg,
-        borderRadius = 4,
-        justifyContent = "center",
-        alignItems = "center",
-        children = {
-            UI.Label { text = avatarText, fontSize = 9, fontColor = WX.white, textAlign = "center" },
-        },
-    }
-
-    local bubble = UI.Panel {
-        maxWidth = "68%",
-        backgroundColor = bubbleBg,
-        borderRadius = 4,
-        paddingHorizontal = 10,
-        paddingVertical = 8,
-        children = {
-            UI.Label {
-                text = msg.text,
-                fontSize = 11,
-                fontColor = WX.text,
-                whiteSpace = "normal",
-            },
-        },
-    }
-
-    local items = {}
-
-    if msg.showTime then
-        items[#items + 1] = UI.Panel {
-            width = "100%",
-            alignItems = "center",
-            marginBottom = 4,
-            children = {
-                UI.Panel {
-                    paddingHorizontal = 8, paddingVertical = 2,
-                    backgroundColor = { 200, 200, 200, 80 },
-                    borderRadius = 4,
-                    children = {
-                        UI.Label { text = msg.time or "", fontSize = 9, fontColor = WX.textSec },
-                    },
-                },
-            },
-        }
-    end
-
-    local rowChildren = isSelf and { bubble, avatar } or { avatar, bubble }
-
-    items[#items + 1] = UI.Panel {
-        width = "100%",
-        flexDirection = "row",
-        justifyContent = alignRow,
-        alignItems = "flex-start",
-        gap = 6,
-        children = rowChildren,
-    }
-
-    return UI.Panel {
-        width = "100%",
-        flexDirection = "column",
-        children = items,
-    }
-end
 
 -- ============================================================================
 -- 联系人详情页面（个人名片）
@@ -403,15 +379,7 @@ end
 
 function M.CreateContactDetailPage(contact, onBack, onSendMessage)
     local colorSeed = string.byte(contact.initial, 1) or 65
-    local avatarColors = {
-        { 80, 130, 220, 255 },
-        { 200, 90, 90, 255 },
-        { 60, 170, 100, 255 },
-        { 180, 120, 60, 255 },
-        { 140, 80, 200, 255 },
-        { 60, 170, 180, 255 },
-    }
-    local avatarBg = avatarColors[(colorSeed % #avatarColors) + 1]
+    local avatarBg = Colors.GetAvatarColor(contact.initial)
 
     local infoRows = {}
     if contact.remark and contact.remark ~= "" then
