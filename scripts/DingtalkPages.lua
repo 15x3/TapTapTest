@@ -796,10 +796,75 @@ end
 function M.CreateChatPage(chatName, chatIconBg, onBack)
     local messages = DingtalkData.GetChatMessages(chatName)
 
-    local msgWidgets = {}
+    -- 消息列表容器（用于动态添加气泡）
+    local msgListContainer = UI.Panel {
+        width = "100%",
+        flexDirection = "column",
+        paddingVertical = 10,
+        paddingHorizontal = 10,
+        gap = 10,
+    }
+
+    -- 填充初始消息
     for _, msg in ipairs(messages) do
-        msgWidgets[#msgWidgets + 1] = CreateChatBubble(msg, chatIconBg)
+        msgListContainer:AddChild(CreateChatBubble(msg, chatIconBg))
     end
+
+    local scrollView = UI.ScrollView {
+        width = "100%",
+        flexGrow = 1,
+        flexBasis = 0,
+        children = { msgListContainer },
+    }
+
+    -- 输入框引用
+    ---@type any
+    local inputField = nil
+
+    -- 延迟滚动标记（等布局更新后再滚动）
+    local pendingScrollToBottom = false
+
+    -- 发送消息
+    local function sendMessage(text)
+        if not text or text == "" then return end
+        local trimmed = text:match("^%s*(.-)%s*$")
+        if trimmed == "" then return end
+
+        -- 获取当前时间
+        local t = os.date("*t")
+        local timeStr = string.format("%02d:%02d", t.hour, t.min)
+
+        -- 创建"我"发的消息气泡
+        local newMsg = { sender = "我", text = trimmed, time = timeStr, showTime = true }
+        msgListContainer:AddChild(CreateChatBubble(newMsg, chatIconBg))
+
+        -- 清空输入框
+        if inputField then
+            inputField:Clear()
+        end
+
+        -- 标记需要滚动到底部（下一帧布局更新后执行）
+        pendingScrollToBottom = true
+    end
+
+    -- 订阅 Update 事件处理延迟滚动
+    SubscribeToEvent("Update", function(eventType, eventData)
+        if pendingScrollToBottom then
+            pendingScrollToBottom = false
+            scrollView:ScrollToBottom()
+        end
+    end)
+
+    -- 创建输入框
+    inputField = UI.TextField {
+        flexGrow = 1,
+        height = 34,
+        fontSize = 12,
+        placeholder = "输入消息...",
+        onSubmit = function(self, value)
+            sendMessage(value)
+        end,
+    }
 
     return UI.Panel {
         width = "100%",
@@ -842,22 +907,8 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
                 },
             },
             -- 消息列表
-            UI.ScrollView {
-                width = "100%",
-                flexGrow = 1,
-                flexBasis = 0,
-                children = {
-                    UI.Panel {
-                        width = "100%",
-                        flexDirection = "column",
-                        paddingVertical = 10,
-                        paddingHorizontal = 10,
-                        gap = 10,
-                        children = msgWidgets,
-                    },
-                },
-            },
-            -- 输入框
+            scrollView,
+            -- 输入栏
             UI.Panel {
                 width = "100%",
                 height = 48,
@@ -869,26 +920,21 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
                 borderTopWidth = 1,
                 borderTopColor = C.border,
                 children = {
-                    UI.Panel {
-                        flexGrow = 1, flexBasis = 0,
-                        height = 32,
-                        backgroundColor = { 245, 245, 245, 255 },
-                        borderRadius = 4,
-                        justifyContent = "center",
-                        paddingHorizontal = 8,
-                        children = {
-                            UI.Label { text = "输入消息...", fontSize = 11, fontColor = { 180, 180, 180, 255 } },
-                        },
-                    },
-                    UI.Panel {
+                    inputField,
+                    UI.Button {
                         width = 50, height = 30,
                         backgroundColor = C.blue,
+                        hoverBackgroundColor = { 38, 100, 220, 255 },
+                        pressedBackgroundColor = { 28, 80, 190, 255 },
                         borderRadius = 4,
-                        justifyContent = "center",
-                        alignItems = "center",
-                        children = {
-                            UI.Label { text = "发送", fontSize = 11, fontColor = C.white },
-                        },
+                        text = "发送",
+                        textColor = C.white,
+                        fontSize = 11,
+                        onClick = function(self)
+                            if inputField then
+                                sendMessage(inputField:GetValue())
+                            end
+                        end,
                     },
                 },
             },
