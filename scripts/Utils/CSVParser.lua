@@ -3,6 +3,8 @@
 -- 功能: 统一的 CSV 文件读取与解析，供所有 Data 模块复用
 -- ============================================================================
 
+local Log = require("Utils.Logger")
+
 local CSVParser = {}
 
 --- 从资源目录读取文件内容
@@ -12,12 +14,12 @@ local CSVParser = {}
 function CSVParser.ReadFile(path, tag)
     tag = tag or "[CSVParser]"
     if not cache:Exists(path) then
-        print(tag .. " 文件不存在: " .. path)
+        Log.warn(tag, "文件不存在:", path)
         return nil
     end
     local file = cache:GetFile(path)
     if not file then
-        print(tag .. " 无法打开文件: " .. path)
+        Log.error(tag, "无法打开文件:", path)
         return nil
     end
     local content = file:ReadString()
@@ -70,14 +72,22 @@ function CSVParser.Parse(content)
 end
 
 --- 加载并解析 CSV 文件（ReadFile + Parse 的便捷组合）
+--- 内置 pcall 保护，解析失败时返回空结果而非抛出异常
 ---@param path string 资源路径
 ---@param tag string|nil 日志标签
 ---@return string[] headers
 ---@return table[] rows
 function CSVParser.Load(path, tag)
+    tag = tag or "[CSVParser]"
     local content = CSVParser.ReadFile(path, tag)
     if not content then return {}, {} end
-    return CSVParser.Parse(content)
+
+    local ok, headersOrErr, rows = pcall(CSVParser.Parse, content)
+    if not ok then
+        Log.error(tag, "CSV 解析失败:", tostring(headersOrErr))
+        return {}, {}
+    end
+    return headersOrErr, rows
 end
 
 return CSVParser

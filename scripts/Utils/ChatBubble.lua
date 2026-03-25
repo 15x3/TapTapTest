@@ -72,18 +72,25 @@ function ChatBubble.Create(msg, chatIconBg, style)
         },
     }
 
+    local displayText = msg.text
+    if not displayText or displayText == "" then
+        displayText = " "  -- 防止空文本导致布局异常
+    end
+
     local bubble = UI.Panel {
         maxWidth = "70%",
+        flexShrink = 1,
         backgroundColor = bubbleBg,
         borderRadius = style.bubbleRadius,
         paddingHorizontal = 10,
         paddingVertical = 8,
         children = {
             UI.Label {
-                text = msg.text,
+                text = displayText,
                 fontSize = 11,
                 fontColor = style.textColor,
                 whiteSpace = "normal",
+                flexShrink = 1,
             },
         },
     }

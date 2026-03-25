@@ -146,10 +146,7 @@ function M.Create(chatName, chatIconBg, onBack)
             if activeInputField_ then
                 activeInputField_:SetValue(partialText)
             end
-            -- 填充完成后自动发送
-            if isComplete and activeSendFunc_ then
-                activeSendFunc_(partialText)
-            end
+            -- 填充完成后不自动发送，等待玩家按回车或点击发送按钮
         end,
 
         onDone = function()
