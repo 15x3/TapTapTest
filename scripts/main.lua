@@ -21,6 +21,17 @@ local uiRoot_ = nil
 local currentApp_ = nil  -- nil = 主屏幕, "dingtalk"/"wechat" = 应用内
 local phoneFrame_ = nil
 local screenContainer_ = nil  -- 屏幕内容容器（用于切换主屏/应用）
+local homePanel_ = nil         -- 主屏幕面板（用于切换壁纸）
+local currentWpSlot_ = ""      -- 当前壁纸时段标识
+
+-- 壁纸时段配置（按时间从晚到早排列，匹配第一个满足条件的）
+local WALLPAPERS = {
+    { hour = 16, min = 30, slot = "evening",   image = "image/wp_evening_20260326120215.png" },
+    { hour = 14, min = 30, slot = "afternoon", image = "image/wp_afternoon_20260326120211.png" },
+    { hour = 10, min = 30, slot = "noon",      image = "image/wp_noon_20260326120218.png" },
+    { hour =  8, min = 40, slot = "morning",   image = "image/wp_morning_20260326120213.png" },
+    { hour =  0, min =  0, slot = "dawn",      image = "image/wp_dawn_20260326120217.png" },
+}
 local timeLabel_ = nil  -- 状态栏时间标签（直接引用，避免 FindById 丢失）
 local lastMinute_ = -1  -- 上次更新的分钟值（用于跳过无变化帧）
 
@@ -527,12 +538,28 @@ end
 -- 主屏幕内容
 -- ============================================================================
 
+--- 根据虚拟时间选择壁纸
+function GetWallpaperForTime()
+    local t = GameTime.Now()
+    local hm = t.hour * 60 + t.min  -- 转为分钟数方便比较
+    for _, wp in ipairs(WALLPAPERS) do
+        if hm >= wp.hour * 60 + wp.min then
+            return wp.slot, wp.image
+        end
+    end
+    return WALLPAPERS[#WALLPAPERS].slot, WALLPAPERS[#WALLPAPERS].image
+end
+
 function CreateHomeContent()
-    return UI.Panel {
+    local slot, wpImage = GetWallpaperForTime()
+    currentWpSlot_ = slot
+
+    homePanel_ = UI.Panel {
+        id = "homePanel",
         width = "100%",
         height = "100%",
         backgroundColor = COLORS.SCREEN_BG,
-        backgroundImage = "image/phone_wallpaper_20260326085604.png",
+        backgroundImage = wpImage,
         backgroundFit = "cover",
         flexDirection = "column",
         justifyContent = "flex-start",
@@ -546,6 +573,7 @@ function CreateHomeContent()
             CreateAppGrid(),
         },
     }
+    return homePanel_
 end
 
 --- 像素风大时钟
@@ -673,6 +701,15 @@ function HandleUpdate(eventType, eventData)
 
             local dateLabel = uiRoot_:FindById("dateLabel")
             if dateLabel then dateLabel:SetText(dateStr) end
+        end
+
+        -- 检测壁纸时段是否变化
+        local newSlot, newImage = GetWallpaperForTime()
+        if newSlot ~= currentWpSlot_ then
+            currentWpSlot_ = newSlot
+            if homePanel_ then
+                homePanel_:SetStyle({ backgroundImage = newImage })
+            end
         end
     end
 end
