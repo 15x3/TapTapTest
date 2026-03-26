@@ -12,6 +12,7 @@ local WechatApp = require("WechatApp")
 local SettingsApp = require("SettingsApp")
 local ScheduleApp = require("ScheduleApp")
 local MapApp = require("MapApp")
+local GameTime = require("Utils.GameTime")
 
 -- ============================================================================
 -- 全局变量
@@ -87,6 +88,7 @@ local APPS = {
 function Start()
     graphics.windowTitle = "Pixel Phone Simulator"
 
+    GameTime.Init()
     InitUI()
     CreateUI()
     SubscribeToEvents()
@@ -493,12 +495,12 @@ end
 -- ============================================================================
 
 function GetCurrentTime()
-    local t = os.date("*t")
+    local t = GameTime.Now()
     return string.format("%02d:%02d", t.hour, t.min)
 end
 
 function GetCurrentDate()
-    local t = os.date("*t")
+    local t = GameTime.Now()
     local weekdays = { "周日", "周一", "周二", "周三", "周四", "周五", "周六" }
     return string.format("%d月%d日 %s", t.month, t.day, weekdays[t.wday])
 end
@@ -523,7 +525,7 @@ function HandleUpdate(eventType, eventData)
     -- 驱动设置应用的 Toast
     SettingsApp.UpdateToast(dt)
 
-    local t = os.date("*t")
+    local t = GameTime.Now()
     if t.min ~= lastMinute_ then
         lastMinute_ = t.min
         local timeStr = GetCurrentTime()

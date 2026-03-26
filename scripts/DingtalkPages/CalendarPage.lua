@@ -5,13 +5,14 @@
 local UI = require("urhox-libs/UI")
 local DingtalkData = require("DingtalkData")
 local Common = require("DingtalkPagesCommon")
+local GameTime = require("Utils.GameTime")
 local C = Common.C
 local CreateSubHeader = Common.CreateSubHeader
 
 local M = {}
 
 function M.Create(onBack)
-    local t = os.date("*t")
+    local t = GameTime.Now()
     local year = t.year
     local month = t.month
     local today = t.day

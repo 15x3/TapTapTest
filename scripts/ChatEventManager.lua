@@ -16,7 +16,7 @@
 --     text 为空 → 不启用，玩家自由打字
 --
 -- 回调接口:
---   onMessage(msg)   -- 收到一条消息事件（含 sender/text/time/showTime）
+--   onMessage(msg)   -- 收到一条消息事件（含 sender/text）
 --   onTyping(sender)  -- 对方正在输入（用于显示 "xxx 正在输入..."）
 --   onTypingEnd()     -- 输入指示结束
 --   onAutoFill(partialText, isComplete) -- 自动填充进度更新
@@ -25,6 +25,7 @@
 -- ============================================================================
 
 local SentimentAnalyzer = require("Utils.SentimentAnalyzer")
+local GameTime = require("Utils.GameTime")
 
 local Manager = {}
 Manager.__index = Manager
@@ -253,6 +254,26 @@ function Manager:Execute()
         end
 
         return false
+
+    elseif eventType == "set_time" then
+        -- 跳转虚拟时间，格式: text = "HH:MM" (如 "14:30")
+        local hourStr, minStr = (event.text or ""):match("^(%d+):(%d+)$")
+        if hourStr then
+            GameTime.SetTime(tonumber(hourStr), tonumber(minStr))
+        end
+        self:Advance()
+        return true
+
+    elseif eventType == "freeze_time" then
+        -- 冻结/解冻时间，格式: text = "on" 冻结, "off" 解冻（空或其他值也视为解冻）
+        local cmd = (event.text or ""):lower()
+        if cmd == "on" or cmd == "true" or cmd == "1" then
+            GameTime.Freeze()
+        else
+            GameTime.Unfreeze()
+        end
+        self:Advance()
+        return true
 
     else
         -- 未知事件类型，跳过

@@ -40,8 +40,6 @@ local function ensureScenarios()
             type       = row.type or "message",
             sender     = row.sender or "",
             text       = row.text or "",
-            time       = row.time or "",
-            showTime   = (row.show_time == "yes"),
             next       = row.next or "",
             options    = row.options or "",
             timeout    = tonumber(row.timeout) or 0,
@@ -90,20 +88,19 @@ function Data.GetChats()
             end
             if not found then
                 -- 从该场景的第一条 message 事件提取预览信息
-                local firstMsg, firstTime = "", ""
+                local firstMsg = ""
                 local firstSender = ""
                 for _, sev in ipairs(cachedScenarios_) do
                     if sev.chat_match == cm and sev.type == "message" and sev.sender ~= "" then
                         firstSender = sev.sender
                         firstMsg = sev.text
-                        firstTime = sev.time
                         break
                     end
                 end
                 local preview = firstSender ~= "" and (firstSender .. ": " .. firstMsg) or firstMsg
                 cachedChats_[#cachedChats_ + 1] = {
                     name     = cm,
-                    time     = firstTime,
+                    time     = "",
                     msg      = preview,
                     badge    = 0,
                     iconBg   = resolveColor("gray") or { 100, 100, 120, 255 },
@@ -222,8 +219,6 @@ function Data.GetChatMessages(chatName)
             matched[#matched + 1] = {
                 sender   = ev.sender,
                 text     = ev.text,
-                time     = ev.time,
-                showTime = ev.showTime,
             }
         end
     end
@@ -254,15 +249,9 @@ function Data.AddMessage(chatName, sender, text)
         runtimeMessages_[chatName] = {}
     end
     local msgs = runtimeMessages_[chatName]
-    -- 生成时间戳
-    local hour = math.random(8, 22)
-    local minute = math.random(0, 59)
-    local timeStr = string.format("%02d:%02d", hour, minute)
     msgs[#msgs + 1] = {
         sender   = sender,
         text     = text,
-        time     = timeStr,
-        showTime = (#msgs == 0),
     }
 end
 

@@ -49,8 +49,6 @@ local function ensureScenarios()
             type       = row.type or "message",
             sender     = row.sender or "",
             text       = row.text or "",
-            time       = row.time or "",
-            showTime   = (row.show_time == "yes"),
             next       = row.next or "",
             options    = row.options or "",
             timeout    = tonumber(row.timeout) or 0,
@@ -105,13 +103,12 @@ function Data.GetChats()
             end
             if not found then
                 -- 从该场景的第一条 message 事件提取预览信息
-                local firstMsg, firstTime = "", ""
+                local firstMsg = ""
                 local firstSender = ""
                 for _, sev in ipairs(cachedScenarios_) do
                     if sev.chat_match == cm and sev.type == "message" and sev.sender ~= "" then
                         firstSender = sev.sender
                         firstMsg = sev.text
-                        firstTime = sev.time
                         break
                     end
                 end
@@ -120,7 +117,7 @@ function Data.GetChats()
                     name     = cm,
                     tag      = "",
                     tagColor = resolveColor("gray"),
-                    time     = firstTime,
+                    time     = "",
                     msg      = preview,
                     badge    = 0,
                     iconBg   = resolveColor("gray") or { 100, 100, 120, 255 },
@@ -182,7 +179,7 @@ end
 
 --- 根据聊天名称获取对应的消息列表（从场景事件中提取 type=message 的事件）
 ---@param chatName string 聊天名称
----@return table[] 消息数组 { sender, text, time, showTime }
+---@return table[] 消息数组 { sender, text }
 function Data.GetChatMessages(chatName)
     local events = Data.GetChatScenario(chatName)
     local matched = {}
@@ -192,8 +189,6 @@ function Data.GetChatMessages(chatName)
             matched[#matched + 1] = {
                 sender   = ev.sender,
                 text     = ev.text,
-                time     = ev.time,
-                showTime = ev.showTime,
             }
         end
     end
@@ -207,7 +202,7 @@ end
 
 --- 根据聊天名称获取对应的场景事件序列
 ---@param chatName string 聊天名称
----@return table[] 事件数组 { id, delay, type, sender, text, time, showTime, next, options, ... }
+---@return table[] 事件数组 { id, delay, type, sender, text, next, options, ... }
 function Data.GetChatScenario(chatName)
     ensureScenarios()
 
