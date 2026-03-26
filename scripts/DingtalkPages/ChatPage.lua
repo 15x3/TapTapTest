@@ -1,5 +1,5 @@
 -- ============================================================================
--- 钉钉聊天详情页面 (Chat Page)
+-- 叮叮聊天详情页面 (Chat Page)
 -- 事件驱动架构：支持自动消息播放、输入等待、随意敲打键盘
 -- ============================================================================
 
@@ -24,6 +24,7 @@ local pendingScroll_ = nil
 local typingIndicator_ = nil
 local activeInputField_ = nil
 local activeSendFunc_ = nil
+local inputBarPanel_ = nil    -- 输入栏外层 Panel，用于切换背景色
 local updateSubscribed_ = false
 
 -- 自动填充：记录上一次输入框文本，用于检测文本变化（兼容中文输入法）
@@ -157,13 +158,12 @@ function M.Create(chatName, chatIconBg, onBack)
 
         onInputStateChanged = function(isManual)
             -- 输入状态变化：true=手动输入, false=自动输入, nil=非输入状态
-            if inputField then
+            -- TextField 不支持动态改背景色，改用外层 Panel 的背景色来提示
+            if inputBarPanel_ then
                 if isManual == true then
-                    inputField:SetBackgroundColor(INPUT_BG_MANUAL)
-                    inputField:SetFontColor(INPUT_TEXT_MANUAL)
+                    inputBarPanel_:SetStyle({ backgroundColor = INPUT_BG_MANUAL })
                 else
-                    inputField:SetBackgroundColor(INPUT_BG_AUTO)
-                    inputField:SetFontColor(INPUT_TEXT_AUTO)
+                    inputBarPanel_:SetStyle({ backgroundColor = INPUT_BG_AUTO })
                 end
             end
         end,
@@ -248,6 +248,7 @@ function M.Create(chatName, chatIconBg, onBack)
                             typingIndicator_ = nil
                             activeInputField_ = nil
                             activeSendFunc_ = nil
+                            inputBarPanel_ = nil
                             lastInputText_ = ""
                             onBack()
                         end,
@@ -268,19 +269,20 @@ function M.Create(chatName, chatIconBg, onBack)
             scrollView,
             -- 正在输入指示
             typingPanel,
-            -- 输入栏
-            UI.Panel {
-                width = "100%",
-                height = 48,
-                backgroundColor = C.white,
-                flexDirection = "row",
-                alignItems = "center",
-                paddingHorizontal = 10,
-                gap = 8,
-                borderTopWidth = 1,
-                borderTopColor = C.border,
-                children = {
-                    inputField,
+            -- 输入栏（inputBarPanel_ 用于 onInputStateChanged 切换背景色）
+            (function()
+                inputBarPanel_ = UI.Panel {
+                    width = "100%",
+                    height = 48,
+                    backgroundColor = C.white,
+                    flexDirection = "row",
+                    alignItems = "center",
+                    paddingHorizontal = 10,
+                    gap = 8,
+                    borderTopWidth = 1,
+                    borderTopColor = C.border,
+                    children = {
+                        inputField,
                     UI.Button {
                         width = 50, height = 30,
                         backgroundColor = C.blue,
@@ -296,8 +298,10 @@ function M.Create(chatName, chatIconBg, onBack)
                             end
                         end,
                     },
-                },
-            },
+                    },
+                }
+                return inputBarPanel_
+            end)(),
         },
     }
 end

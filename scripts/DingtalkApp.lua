@@ -1,6 +1,6 @@
 -- ============================================================================
--- 钉钉应用壳模块 (DingTalk App Shell)
--- 功能: 钉钉应用的主框架（Tab 栏、导航、主内容区）
+-- 叮叮应用壳模块 (DingTalk App Shell)
+-- 功能: 叮叮应用的主框架（Tab 栏、导航、主内容区）
 -- 依赖: DingtalkPages, DingtalkData
 -- ============================================================================
 
@@ -10,7 +10,7 @@ local DingtalkData = require("DingtalkData")
 
 local App = {}
 
--- 钉钉颜色
+-- 叮叮颜色
 local DT = {
     blue    = { 48, 118, 255, 255 },
     bg      = { 245, 245, 245, 255 },
@@ -21,7 +21,7 @@ local DT = {
 }
 
 -- 模块级状态
-local dtContentContainer_ = nil  -- 钉钉内容区容器
+local dtContentContainer_ = nil  -- 叮叮内容区容器
 local dtActiveTab_ = "msg"       -- 当前激活的底部 Tab
 local dtTabBarContainer_ = nil   -- 底部 Tab 栏容器
 local goHomeFn_ = nil            -- 返回主屏幕的回调
@@ -30,7 +30,7 @@ local goHomeFn_ = nil            -- 返回主屏幕的回调
 -- 导航系统
 -- ============================================================================
 
---- 钉钉子页面导航
+--- 叮叮子页面导航
 local function navigateTo(page, chatData)
     if not dtContentContainer_ then return end
     dtContentContainer_:ClearChildren()
@@ -127,7 +127,7 @@ end
 -- UI 组件
 -- ============================================================================
 
---- 创建钉钉主页面内容（搜索栏 + 快捷栏 + 会话列表）
+--- 创建叮叮主页面内容（搜索栏 + 快捷栏 + 会话列表）
 function App._createMainContent()
     local chatList = DingtalkData.GetChats()
 
@@ -264,7 +264,7 @@ function App._createMainContent()
     }
 end
 
---- 钉钉聊天列表项（可点击打开聊天详情）
+--- 叮叮聊天列表项（可点击打开聊天详情）
 function App._createChatItem(chat)
     local nameChildren = {
         UI.Label {
@@ -377,7 +377,7 @@ function App._createChatItem(chat)
     }
 end
 
---- 钉钉底部导航 tab
+--- 叮叮底部导航 tab
 function App._createTab(tab, isActive)
     local tabColor = isActive and DT.blue or DT.textSec
     local iconChildren = {
@@ -441,7 +441,7 @@ end
 -- 对外接口
 -- ============================================================================
 
---- 创建完整的钉钉应用界面
+--- 创建完整的叮叮应用界面
 ---@param onGoHome fun() 返回主屏幕的回调
 ---@return table UI 组件
 function App.Create(onGoHome)

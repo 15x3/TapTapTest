@@ -3,12 +3,17 @@
 -- ============================================================================
 
 local UI = require("urhox-libs/UI")
+local Toast = require("urhox-libs/UI/Widgets/Toast")
 local Common = require("DingtalkPagesCommon")
 local AboutPage = require("DingtalkPages.AboutPage")
 
 local C = Common.C
 
 local M = {}
+
+local function showNotAvailable()
+    Toast.Show("功能暂未开放", { type = "info", duration = 2 })
+end
 
 function M.Create()
     local function MenuItem(iconText, iconBg, label, onClick)
@@ -108,9 +113,9 @@ function M.Create()
                                     backgroundColor = C.white,
                                     borderRadius = 0,
                                     children = {
-                                        MenuItem("钱", { 255, 140, 0, 255 }, "钱包"),
-                                        MenuItem("扫", C.blue, "扫一扫"),
-                                        MenuItem("卡", { 60, 180, 100, 255 }, "名片"),
+                                        MenuItem("钱", { 255, 140, 0, 255 }, "钱包", showNotAvailable),
+                                        MenuItem("扫", C.blue, "扫一扫", showNotAvailable),
+                                        MenuItem("卡", { 60, 180, 100, 255 }, "名片", showNotAvailable),
                                     },
                                 },
                                 UI.Panel {
@@ -118,8 +123,8 @@ function M.Create()
                                     flexDirection = "column",
                                     backgroundColor = C.white,
                                     children = {
-                                        MenuItem("设", { 100, 100, 120, 255 }, "设置"),
-                                        MenuItem("帮", { 80, 150, 220, 255 }, "帮助与反馈"),
+                                        MenuItem("设", { 100, 100, 120, 255 }, "设置", showNotAvailable),
+                                        MenuItem("帮", { 80, 150, 220, 255 }, "帮助与反馈", showNotAvailable),
                                     },
                                 },
                                 UI.Panel {

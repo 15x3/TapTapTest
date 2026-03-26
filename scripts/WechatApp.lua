@@ -1,7 +1,7 @@
 -- ============================================================================
--- 微信应用壳模块 (WeChat App Shell)
--- 功能: 微信应用主框架（Tab 栏、导航、三个主页面）
--- Tab: 微信 | 通讯录 | 我
+-- 微言应用壳模块 (WeChat App Shell)
+-- 功能: 微言应用主框架（Tab 栏、导航、三个主页面）
+-- Tab: 微言 | 通讯录 | 我
 -- 依赖: WechatPages, WechatData
 -- ============================================================================
 
@@ -12,7 +12,7 @@ local WechatCommon = require("WechatPagesCommon")
 
 local App = {}
 
--- 微信色彩体系（从共享模块引用）
+-- 微言色彩体系（从共享模块引用）
 local WX = WechatCommon.WX
 
 -- 模块级状态
@@ -57,7 +57,7 @@ local function refreshTabBar()
     local unreadCount = WechatData.GetTotalUnreadCount()
 
     local tabs = {
-        { id = "chat",     label = "微信",   icon = "WX",  badge = unreadCount },
+        { id = "chat",     label = "微言",   icon = "WX",  badge = unreadCount },
         { id = "contacts", label = "通讯录", icon = "DIR", badge = 0 },
         { id = "me",       label = "我",     icon = "ME",  badge = 0 },
     }
@@ -84,7 +84,7 @@ function App.switchTab(tabId)
 end
 
 -- ============================================================================
--- Tab 1: 微信（聊天列表）
+-- Tab 1: 微言（聊天列表）
 -- ============================================================================
 
 function App._createChatListPage()
@@ -129,7 +129,7 @@ function App._createChatListPage()
                     },
                     -- 标题
                     UI.Label {
-                        text = "微信",
+                        text = "微言",
                         fontSize = 14,
                         fontColor = WX.text,
                     },
@@ -552,6 +552,11 @@ end
 
 function App._createMePage()
 
+    local Toast = require("urhox-libs/UI/Widgets/Toast")
+    local function showNotAvailable()
+        Toast.Show("功能暂未开放", { type = "info", duration = 2 })
+    end
+
     -- 菜单项创建器
     local function MenuItem(iconText, iconBg, label, subtitle, showArrow)
         local rightChildren = {}
@@ -561,6 +566,7 @@ function App._createMePage()
                 fontSize = 10,
                 fontColor = WX.textSec,
                 marginRight = 4,
+                pointerEvents = "none",
             }
         end
         if showArrow ~= false then
@@ -568,19 +574,24 @@ function App._createMePage()
                 text = ">",
                 fontSize = 12,
                 fontColor = WX.textSec,
+                pointerEvents = "none",
             }
         end
 
-        return UI.Panel {
+        return UI.Button {
             width = "100%",
             height = 52,
             backgroundColor = WX.white,
+            hoverBackgroundColor = { 245, 245, 245, 255 },
+            pressedBackgroundColor = { 235, 235, 235, 255 },
             flexDirection = "row",
             alignItems = "center",
             paddingHorizontal = 14,
             gap = 12,
+            borderRadius = 0,
             borderBottomWidth = 1,
             borderBottomColor = { 240, 240, 240, 255 },
+            onClick = function(self) showNotAvailable() end,
             children = {
                 UI.Panel {
                     width = 24, height = 24,
@@ -588,6 +599,7 @@ function App._createMePage()
                     borderRadius = 5,
                     justifyContent = "center",
                     alignItems = "center",
+                    pointerEvents = "none",
                     children = {
                         UI.Label { text = iconText, fontSize = 10, fontColor = { 255, 255, 255, 255 } },
                     },
@@ -597,11 +609,13 @@ function App._createMePage()
                     fontSize = 13,
                     fontColor = WX.text,
                     flexGrow = 1,
+                    pointerEvents = "none",
                 },
                 UI.Panel {
                     flexDirection = "row",
                     alignItems = "center",
                     gap = 4,
+                    pointerEvents = "none",
                     children = rightChildren,
                 },
             },
@@ -638,14 +652,18 @@ function App._createMePage()
                         flexDirection = "column",
                         children = {
                             -- 个人信息卡片
-                            UI.Panel {
+                            UI.Button {
                                 width = "100%",
                                 backgroundColor = WX.white,
+                                hoverBackgroundColor = { 245, 245, 245, 255 },
+                                pressedBackgroundColor = { 235, 235, 235, 255 },
+                                borderRadius = 0,
                                 paddingVertical = 20,
                                 paddingHorizontal = 16,
                                 flexDirection = "row",
                                 alignItems = "center",
                                 gap = 14,
+                                onClick = function(self) showNotAvailable() end,
                                 children = {
                                     -- 头像
                                     UI.Panel {
@@ -654,6 +672,7 @@ function App._createMePage()
                                         borderRadius = 8,
                                         justifyContent = "center",
                                         alignItems = "center",
+                                        pointerEvents = "none",
                                         children = {
                                             UI.Label { text = "陈", fontSize = 22, fontColor = { 255, 255, 255, 255 } },
                                         },
@@ -663,6 +682,7 @@ function App._createMePage()
                                         flexGrow = 1, flexShrink = 1,
                                         flexDirection = "column",
                                         gap = 4,
+                                        pointerEvents = "none",
                                         children = {
                                             UI.Label {
                                                 text = "陈星河",
@@ -676,7 +696,7 @@ function App._createMePage()
                                                 gap = 6,
                                                 children = {
                                                     UI.Label {
-                                                        text = "微信号: chenxinghe_2025",
+                                                        text = "微言号: chenxinghe_2025",
                                                         fontSize = 11,
                                                         fontColor = WX.textSec,
                                                     },
@@ -689,6 +709,7 @@ function App._createMePage()
                                         flexDirection = "row",
                                         alignItems = "center",
                                         gap = 6,
+                                        pointerEvents = "none",
                                         children = {
                                             UI.Panel {
                                                 width = 16, height = 16,

@@ -92,7 +92,7 @@ function M.Create(onBack)
                                             UI.Label { text = "钉", fontSize = 28, fontColor = C.white },
                                         },
                                     },
-                                    UI.Label { text = "钉钉", fontSize = 18, fontColor = C.text, fontWeight = "bold" },
+                                    UI.Label { text = "叮叮", fontSize = 18, fontColor = C.text, fontWeight = "bold" },
                                     UI.Label { text = "让工作学习更简单", fontSize = 11, fontColor = C.textSec },
                                 },
                             },
@@ -142,7 +142,7 @@ function M.Create(onBack)
                                 children = {
                                     UI.Label { text = "致谢", fontSize = 13, fontColor = C.text, fontWeight = "bold" },
                                     UI.Label {
-                                        text = "感谢 UrhoX 引擎团队提供的强大开发框架。\n本应用为像素风格教学演示项目，\n界面仅供学习参考，非官方钉钉产品。",
+                                        text = "感谢 UrhoX 引擎团队提供的强大开发框架。\n本应用为像素风格教学演示项目，\n界面仅供学习参考，非官方叮叮产品。",
                                         fontSize = 11,
                                         fontColor = C.textSec,
                                         lineHeight = 1.6,

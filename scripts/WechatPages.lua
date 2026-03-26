@@ -1,5 +1,5 @@
 -- ============================================================================
--- 微信子页面模块 (WeChat Sub-Pages Module)
+-- 微言子页面模块 (WeChat Sub-Pages Module)
 -- 包含：聊天详情、联系人详情
 -- ============================================================================
 
@@ -19,6 +19,7 @@ local wxTypingIndicator_ = nil      -- "正在输入"指示器 widget 引用
 local wxTypingLabel_ = nil          -- 输入指示标签
 local wxActiveInputField_ = nil    -- 当前聊天页的输入框引用
 local wxActiveSendFunc_ = nil      -- 当前聊天页的发送函数引用
+local wxInputBarPanel_ = nil       -- 输入栏外层 Panel，用于切换背景色
 local wxPagesUpdateSubscribed_ = false  -- 是否已订阅 Update 事件
 
 -- 自动填充：记录上一次输入框文本，用于检测文本变化（兼容中文输入法）
@@ -68,7 +69,7 @@ local INPUT_BG_MANUAL = { 34, 120, 69, 255 }     -- 手动输入：深绿色
 local INPUT_TEXT_AUTO   = { 25, 25, 25, 255 }     -- 自动输入文字颜色
 local INPUT_TEXT_MANUAL = { 255, 255, 255, 255 }  -- 手动输入文字颜色
 
--- 微信色彩体系（从共享模块引用）
+-- 微言色彩体系（从共享模块引用）
 local WX = WechatCommon.WX
 
 -- ============================================================================
@@ -131,6 +132,7 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
     wxTypingLabel_ = nil
     wxActiveInputField_ = nil
     wxActiveSendFunc_ = nil
+    wxInputBarPanel_ = nil
     wxLastInputText_ = ""
 
     -- 消息列表容器（用于动态追加气泡）
@@ -210,13 +212,12 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
 
         onInputStateChanged = function(isManual)
             -- 输入状态变化：true=手动输入, false=自动输入, nil=非输入状态
-            if wxActiveInputField_ then
+            -- TextField 不支持动态改背景色，改用外层 Panel 的背景色来提示
+            if wxInputBarPanel_ then
                 if isManual == true then
-                    wxActiveInputField_:SetBackgroundColor(INPUT_BG_MANUAL)
-                    wxActiveInputField_:SetFontColor(INPUT_TEXT_MANUAL)
+                    wxInputBarPanel_:SetStyle({ backgroundColor = INPUT_BG_MANUAL })
                 else
-                    wxActiveInputField_:SetBackgroundColor(INPUT_BG_AUTO)
-                    wxActiveInputField_:SetFontColor(INPUT_TEXT_AUTO)
+                    wxInputBarPanel_:SetStyle({ backgroundColor = INPUT_BG_AUTO })
                 end
             end
         end,
@@ -337,6 +338,7 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
                 wxTypingLabel_ = nil
                 wxActiveInputField_ = nil
                 wxActiveSendFunc_ = nil
+                wxInputBarPanel_ = nil
                 wxLastInputText_ = ""
                 onBack()
             end),
@@ -344,32 +346,35 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
             scrollView,
             -- 正在输入指示
             typingPanel,
-            -- 底部输入栏
-            UI.Panel {
-                width = "100%",
-                minHeight = 50,
-                backgroundColor = { 245, 245, 245, 255 },
-                flexDirection = "row",
-                alignItems = "center",
-                paddingHorizontal = 8,
-                paddingVertical = 7,
-                gap = 6,
-                borderTopWidth = 1,
-                borderTopColor = { 210, 210, 210, 255 },
-                children = {
-                    textField,
-                    UI.Panel {
-                        width = 28, height = 28,
-                        justifyContent = "center",
-                        alignItems = "center",
-                        children = {
-                            UI.Label { text = ":)", fontSize = 14, fontColor = WX.textSec },
+            -- 底部输入栏（wxInputBarPanel_ 用于 onInputStateChanged 切换背景色）
+            (function()
+                wxInputBarPanel_ = UI.Panel {
+                    width = "100%",
+                    minHeight = 50,
+                    backgroundColor = { 245, 245, 245, 255 },
+                    flexDirection = "row",
+                    alignItems = "center",
+                    paddingHorizontal = 8,
+                    paddingVertical = 7,
+                    gap = 6,
+                    borderTopWidth = 1,
+                    borderTopColor = { 210, 210, 210, 255 },
+                    children = {
+                        textField,
+                        UI.Panel {
+                            width = 28, height = 28,
+                            justifyContent = "center",
+                            alignItems = "center",
+                            children = {
+                                UI.Label { text = ":)", fontSize = 14, fontColor = WX.textSec },
+                            },
                         },
+                        plusBtn,
+                        sendBtn,
                     },
-                    plusBtn,
-                    sendBtn,
-                },
-            },
+                }
+                return wxInputBarPanel_
+            end)(),
         },
     }
 end
@@ -450,7 +455,7 @@ function M.CreateContactDetailPage(contact, onBack, onSendMessage)
                                                 fontWeight = "bold",
                                             },
                                             UI.Label {
-                                                text = "微信号: wx_" .. string.lower(contact.initial) .. string.format("%04d", colorSeed),
+                                                text = "微言号: wx_" .. string.lower(contact.initial) .. string.format("%04d", colorSeed),
                                                 fontSize = 11,
                                                 fontColor = WX.textSec,
                                             },
