@@ -21,10 +21,12 @@
 --   onTypingEnd()     -- 输入指示结束
 --   onAutoFill(partialText, isComplete) -- 自动填充进度更新
 --   onBranchHint(hint) -- 分支匹配结果提示（关键词/语气/默认）
+--   onInputStateChanged(isManual) -- 输入状态变化（true=手动输入, false=自动输入, nil=非输入状态）
 --   onDone()           -- 全部事件播放完毕
 -- ============================================================================
 
 local SentimentAnalyzer = require("Utils.SentimentAnalyzer")
+local TagManager = require("Utils.TagManager")
 local GameTime = require("Utils.GameTime")
 
 local Manager = {}
@@ -53,6 +55,10 @@ function Manager.Create(events, callbacks)
     -- 分支选择相关（关键词+语气模式）
     self.pendingBranches = nil  -- 当前待匹配的分支选项（choice 事件解析后存储）
     self.pendingDefaultNext = "" -- choice 事件的 default_next
+
+    -- 阈值分支相关（关键词计数模式）
+    self.pendingThresholds = ""  -- 阈值字符串（如 "branchA,3,branchB,1,branchC"）
+    self.pendingKeywordPool = "" -- 从 options 所有分支汇总的关键词池
 
     -- "随意敲打键盘" 自动输入功能
     -- 由策划在 CSV 的 wait_input 行的 text 字段控制
@@ -146,6 +152,29 @@ function Manager:Execute()
     local event = self.events[self.index]
     local eventType = event.type
 
+    -- require_tag 检查：如果事件要求特定 tag，但 tag 不存在则跳过
+    -- 支持竖线分隔表示"任意一个满足即可"
+    if event.require_tag and event.require_tag ~= "" then
+        local hasAny = false
+        for rtag in event.require_tag:gmatch("[^|]+") do
+            local trimmed = rtag:match("^%s*(.-)%s*$")
+            if trimmed and trimmed ~= "" and TagManager.Has(trimmed) then
+                hasAny = true
+                break
+            end
+        end
+        if not hasAny then
+            -- tag 条件不满足，跳过此事件
+            self:Advance()
+            return true  -- 继续处理下一个事件
+        end
+    end
+
+    -- 全局 Tag 处理：任何事件执行时，若有 tag 字段则添加到全局标签
+    if event.tag and event.tag ~= "" then
+        TagManager.Add(event.tag)
+    end
+
     if eventType == "message" then
         -- 清除之前的输入指示
         if self.isTyping then
@@ -189,6 +218,11 @@ function Manager:Execute()
         local autoText = (event.text and event.text ~= "") and event.text or ""
         self.autoFillEnabled = (autoText ~= "")
 
+        -- 通知前端输入状态变化（手动=true, 自动=false）
+        if self.callbacks.onInputStateChanged then
+            self.callbacks.onInputStateChanged(not self.autoFillEnabled)
+        end
+
         if self.autoFillEnabled then
             -- 解析填充文本列表（用竖线 | 分隔多个分支）
             self.autoFillTexts = {}
@@ -216,9 +250,10 @@ function Manager:Execute()
 
     elseif eventType == "choice" then
         -- ======================================================================
-        -- 关键词+语气分支选择模式
-        -- 不再弹出选项按钮，而是进入 wait_choice 状态等待用户输入文本，
-        -- 用户发送消息后通过 OnUserMessage 自动匹配分支。
+        -- 分支选择模式（两种子模式）:
+        --   1) 阈值模式 (thresholds 非空): 统计关键词数量 → 按阈值选分支
+        --   2) 关键词匹配模式 (thresholds 为空): 匹配最佳关键词 → 选分支
+        -- 两种模式都进入 wait_choice 状态等待用户输入文本。
         -- ======================================================================
         self.state = "wait_choice"
 
@@ -229,6 +264,21 @@ function Manager:Execute()
             self.pendingBranches = {}
         end
         self.pendingDefaultNext = event.default_next or ""
+
+        -- 阈值分支模式：存储阈值字符串和关键词池
+        self.pendingThresholds = event.thresholds or ""
+        if self.pendingThresholds ~= "" and self.pendingBranches then
+            -- 从所有分支的 keywords 合并关键词池
+            local poolParts = {}
+            for _, branch in ipairs(self.pendingBranches) do
+                if branch.keywords and branch.keywords ~= "" then
+                    poolParts[#poolParts + 1] = branch.keywords
+                end
+            end
+            self.pendingKeywordPool = table.concat(poolParts, "|")
+        else
+            self.pendingKeywordPool = ""
+        end
 
         -- 初始化超时计时器
         local timeout = tonumber(event.timeout) or 0
@@ -245,12 +295,16 @@ function Manager:Execute()
 
         -- 通知前端：进入分支等待输入（可选显示提示）
         if self.callbacks.onBranchHint then
-            -- 提取关键词提示
             local hints = {}
             for _, branch in ipairs(self.pendingBranches) do
                 hints[#hints + 1] = branch.keywords
             end
             self.callbacks.onBranchHint(hints, timeout)
+        end
+
+        -- 通知前端输入状态变化（choice 总是手动输入）
+        if self.callbacks.onInputStateChanged then
+            self.callbacks.onInputStateChanged(true)
         end
 
         return false
@@ -313,26 +367,46 @@ end
 function Manager:OnUserMessage(text)
     if self.state == "wait_input" then
         -- 普通等待输入：直接推进
+        -- 通知前端离开输入状态
+        if self.callbacks.onInputStateChanged then
+            self.callbacks.onInputStateChanged(nil)
+        end
+
         self.index = self.index + 1
         self.state = "processing"
         self:Process()
 
     elseif self.state == "wait_choice" then
-        -- 分支选择：通过关键词/语气分析选择分支
-        local nextId, matchType = SentimentAnalyzer.SelectBranch(
-            text,
-            self.pendingBranches,
-            self.pendingDefaultNext
-        )
+        local nextId, matchType
+
+        if self.pendingThresholds ~= "" then
+            -- 阈值模式：统计关键词数量 → 按阈值选分支
+            local count = SentimentAnalyzer.CountKeywords(text, self.pendingKeywordPool)
+            nextId, matchType = SentimentAnalyzer.SelectBranchByThresholds(count, self.pendingThresholds)
+        else
+            -- 关键词匹配模式：匹配最佳关键词 → 选分支
+            nextId, matchType = SentimentAnalyzer.SelectBranch(
+                text,
+                self.pendingBranches,
+                self.pendingDefaultNext
+            )
+        end
 
         -- 通知前端匹配结果（用于调试或显示提示）
         if self.callbacks.onBranchMatched then
             self.callbacks.onBranchMatched(nextId, matchType)
         end
 
+        -- 通知前端离开输入状态
+        if self.callbacks.onInputStateChanged then
+            self.callbacks.onInputStateChanged(nil)
+        end
+
         -- 清理分支状态
         self.pendingBranches = nil
         self.pendingDefaultNext = ""
+        self.pendingThresholds = ""
+        self.pendingKeywordPool = ""
         self.timeoutTimer = 0
         self.timeoutTarget = 0
         self.timeoutNextId = ""
@@ -348,41 +422,6 @@ function Manager:OnUserMessage(text)
         self.state = "processing"
         self:Process()
     end
-end
-
---- 用户选择了选项（保留兼容，但在新模式下不再使用）
----@param index number 选项索引（从 1 开始）
-function Manager:OnSelectOption(index)
-    if self.state ~= "wait_choice" then return end
-
-    local event = self.events[self.index]
-    if event and event.options then
-        -- 解析选项，找到对应的 nextId
-        local optIdx = 0
-        for part in event.options:gmatch("[^;]+") do
-            optIdx = optIdx + 1
-            if optIdx == index then
-                local _, nextId = part:match("^(.-)>(.+)$")
-                if nextId then
-                    -- 清理分支状态
-                    self.pendingBranches = nil
-                    self.pendingDefaultNext = ""
-
-                    self:JumpTo(nextId)
-                    self.state = "processing"
-                    self:Process()
-                    return
-                end
-            end
-        end
-    end
-
-    -- fallback: 顺序推进
-    self.pendingBranches = nil
-    self.pendingDefaultNext = ""
-    self.index = self.index + 1
-    self.state = "processing"
-    self:Process()
 end
 
 --- 获取当前状态

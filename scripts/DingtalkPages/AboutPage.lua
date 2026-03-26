@@ -105,8 +105,8 @@ function M.Create(onBack)
                                     InfoRow("版本号", "v7.6.20 (像素版)"),
                                     InfoRow("构建日期", "2025-03-24"),
                                     InfoRow("引擎", "UrhoX Engine"),
-                                    InfoRow("开发者", "杨清 · 信息技术系"),
-                                    InfoRow("学校", "福建省石狮鹏山工贸学校"),
+                                    InfoRow("开发者", "陈星河 · 信息技术系"),
+                                    InfoRow("学校", "星火市明德职业技术学校"),
                                 },
                             },
 

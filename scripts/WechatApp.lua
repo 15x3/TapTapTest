@@ -8,20 +8,12 @@
 local UI = require("urhox-libs/UI")
 local WechatPages = require("WechatPages")
 local WechatData = require("WechatData")
+local WechatCommon = require("WechatPagesCommon")
 
 local App = {}
 
--- 微信色彩体系
-local WX = {
-    green      = { 7, 193, 96, 255 },
-    darkGreen  = { 54, 132, 86, 255 },
-    headerBg   = { 237, 237, 237, 255 },
-    bg         = { 237, 237, 237, 255 },
-    white      = { 255, 255, 255, 255 },
-    text       = { 25, 25, 25, 255 },
-    textSec    = { 153, 153, 153, 255 },
-    border     = { 225, 225, 225, 255 },
-}
+-- 微信色彩体系（从共享模块引用）
+local WX = WechatCommon.WX
 
 -- 模块级状态
 local wxContentContainer_ = nil
@@ -663,7 +655,7 @@ function App._createMePage()
                                         justifyContent = "center",
                                         alignItems = "center",
                                         children = {
-                                            UI.Label { text = "杨", fontSize = 22, fontColor = { 255, 255, 255, 255 } },
+                                            UI.Label { text = "陈", fontSize = 22, fontColor = { 255, 255, 255, 255 } },
                                         },
                                     },
                                     -- 信息
@@ -673,7 +665,7 @@ function App._createMePage()
                                         gap = 4,
                                         children = {
                                             UI.Label {
-                                                text = "杨清",
+                                                text = "陈星河",
                                                 fontSize = 17,
                                                 fontColor = WX.text,
                                                 fontWeight = "bold",
@@ -684,7 +676,7 @@ function App._createMePage()
                                                 gap = 6,
                                                 children = {
                                                     UI.Label {
-                                                        text = "微信号: yangqing_2025",
+                                                        text = "微信号: chenxinghe_2025",
                                                         fontSize = 11,
                                                         fontColor = WX.textSec,
                                                     },

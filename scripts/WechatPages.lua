@@ -8,6 +8,7 @@ local WechatData = require("WechatData")
 local ChatEventManager = require("ChatEventManager")
 local ChatBubble = require("Utils.ChatBubble")
 local Colors = require("Utils.Colors")
+local WechatCommon = require("WechatPagesCommon")
 
 local M = {}
 
@@ -61,19 +62,14 @@ function HandleWechatPagesUpdate(eventType, eventData)
     end
 end
 
--- 微信色彩体系
-local WX = {
-    green      = { 7, 193, 96, 255 },
-    darkGreen  = { 54, 132, 86, 255 },
-    headerBg   = { 237, 237, 237, 255 },
-    bg         = { 237, 237, 237, 255 },
-    white      = { 255, 255, 255, 255 },
-    text       = { 25, 25, 25, 255 },
-    textSec    = { 153, 153, 153, 255 },
-    border     = { 225, 225, 225, 255 },
-    chatBg     = { 240, 240, 240, 255 },
-    selfBubble = { 149, 215, 105, 255 },
-}
+-- 输入框颜色常量
+local INPUT_BG_AUTO   = { 255, 255, 255, 255 }  -- 自动输入/默认：白色
+local INPUT_BG_MANUAL = { 34, 120, 69, 255 }     -- 手动输入：深绿色
+local INPUT_TEXT_AUTO   = { 25, 25, 25, 255 }     -- 自动输入文字颜色
+local INPUT_TEXT_MANUAL = { 255, 255, 255, 255 }  -- 手动输入文字颜色
+
+-- 微信色彩体系（从共享模块引用）
+local WX = WechatCommon.WX
 
 -- ============================================================================
 -- 通用顶栏
@@ -210,6 +206,19 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
 
         onBranchMatched = function(nextId, matchType)
             -- 分支匹配完成后的回调
+        end,
+
+        onInputStateChanged = function(isManual)
+            -- 输入状态变化：true=手动输入, false=自动输入, nil=非输入状态
+            if wxActiveInputField_ then
+                if isManual == true then
+                    wxActiveInputField_:SetBackgroundColor(INPUT_BG_MANUAL)
+                    wxActiveInputField_:SetFontColor(INPUT_TEXT_MANUAL)
+                else
+                    wxActiveInputField_:SetBackgroundColor(INPUT_BG_AUTO)
+                    wxActiveInputField_:SetFontColor(INPUT_TEXT_AUTO)
+                end
+            end
         end,
 
         onDone = function()

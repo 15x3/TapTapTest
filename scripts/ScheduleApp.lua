@@ -1,5 +1,6 @@
 -- ============================================================================
 -- 课表应用模块 (Schedule App)
+-- 数据来源: assets/Data/schedule.csv（策划配置，游戏内不可修改）
 -- ============================================================================
 
 local UI = require("urhox-libs/UI")
@@ -11,7 +12,6 @@ local M = {}
 -- ============================================================================
 
 local scheduleData_ = nil
-local scheduleEditCell_ = nil
 local scheduleContainer_ = nil
 
 local COURSE_COLORS = {
@@ -25,41 +25,102 @@ local COURSE_COLORS = {
     { 90, 120, 200, 200 },
 }
 
+--- 解析 CSV 内容为行列数组
+local function parseCSV(content)
+    local rows = {}
+    for line in content:gmatch("[^\r\n]+") do
+        local row = {}
+        -- 处理逗号分隔，支持连续逗号产生空字段
+        local pos = 1
+        while pos <= #line do
+            local c = line:sub(pos, pos)
+            if c == "," then
+                row[#row + 1] = ""
+                pos = pos + 1
+            else
+                local nextComma = line:find(",", pos)
+                if nextComma then
+                    row[#row + 1] = line:sub(pos, nextComma - 1):match("^%s*(.-)%s*$")
+                    pos = nextComma + 1
+                else
+                    row[#row + 1] = line:sub(pos):match("^%s*(.-)%s*$")
+                    pos = #line + 1
+                end
+            end
+        end
+        -- 如果行以逗号结尾，补一个空字段
+        if line:sub(-1) == "," then
+            row[#row + 1] = ""
+        end
+        rows[#rows + 1] = row
+    end
+    return rows
+end
+
+--- 从 CSV 文件加载课表数据
 local function initScheduleData()
     if scheduleData_ then return end
-    local DAYS = { "周一", "周二", "周三", "周四", "周五" }
-    local PERIODS = 8
-    scheduleData_ = {
-        days = DAYS,
-        periods = PERIODS,
-        data = {},
-        periodTimes = {
-            "08:00", "09:00", "10:10", "11:10",
-            "14:00", "15:00", "16:10", "17:10",
-        },
+
+    -- 默认空数据（CSV 读取失败时使用）
+    local defaultDays = { "周一", "周二", "周三", "周四", "周五" }
+    local defaultTimes = {
+        "08:00", "09:00", "10:10", "11:10",
+        "14:00", "15:00", "16:10", "17:10",
     }
-    for p = 1, PERIODS do
+
+    scheduleData_ = {
+        days = defaultDays,
+        periods = #defaultTimes,
+        data = {},
+        periodTimes = defaultTimes,
+    }
+
+    -- 从资源目录读取 CSV（assets/ 是资源根目录）
+    local file = cache:GetFile("Data/schedule.csv")
+    if not file then
+        print("[ScheduleApp] CSV not found, using empty schedule")
+        for p = 1, scheduleData_.periods do
+            scheduleData_.data[p] = {}
+            for d = 1, #scheduleData_.days do
+                scheduleData_.data[p][d] = ""
+            end
+        end
+        return
+    end
+
+    local content = file:ReadString()
+    file:Close()
+
+    local rows = parseCSV(content)
+    if #rows < 2 then
+        print("[ScheduleApp] CSV has no data rows")
+        return
+    end
+
+    -- 第一行是表头: time,周一,周二,...
+    local header = rows[1]
+    local days = {}
+    for i = 2, #header do
+        days[#days + 1] = header[i]
+    end
+    scheduleData_.days = days
+
+    -- 后续行是课程数据: 08:00,高数,英语,...
+    local periods = #rows - 1
+    scheduleData_.periods = periods
+    scheduleData_.periodTimes = {}
+    scheduleData_.data = {}
+
+    for p = 1, periods do
+        local row = rows[p + 1]
+        scheduleData_.periodTimes[p] = row[1] or ""
         scheduleData_.data[p] = {}
-        for d = 1, #DAYS do
-            scheduleData_.data[p][d] = ""
+        for d = 1, #days do
+            scheduleData_.data[p][d] = row[d + 1] or ""
         end
     end
-    -- 预填默认课程
-    scheduleData_.data[1][1] = "高数"
-    scheduleData_.data[2][1] = "高数"
-    scheduleData_.data[1][2] = "英语"
-    scheduleData_.data[3][2] = "物理"
-    scheduleData_.data[1][3] = "编程"
-    scheduleData_.data[2][3] = "编程"
-    scheduleData_.data[4][3] = "体育"
-    scheduleData_.data[1][4] = "英语"
-    scheduleData_.data[3][4] = "物理"
-    scheduleData_.data[5][4] = "数据结构"
-    scheduleData_.data[1][5] = "线代"
-    scheduleData_.data[2][5] = "线代"
-    scheduleData_.data[5][1] = "大学物理"
-    scheduleData_.data[6][2] = "思政"
-    scheduleData_.data[5][5] = "选修课"
+
+    print("[ScheduleApp] Loaded " .. periods .. " periods, " .. #days .. " days from CSV")
 end
 
 local function getCourseColor(name)
@@ -72,10 +133,10 @@ local function getCourseColor(name)
 end
 
 -- ============================================================================
--- 课表网格刷新
+-- 课表网格构建
 -- ============================================================================
 
-local function refreshScheduleGrid()
+local function buildScheduleGrid()
     if not scheduleContainer_ then return end
     scheduleContainer_:ClearChildren()
 
@@ -83,8 +144,13 @@ local function refreshScheduleGrid()
     local white = { 255, 255, 255, 255 }
     local textColor = { 25, 25, 25, 255 }
     local textSec = { 120, 120, 140, 255 }
+    local headerBgColor = { 230, 230, 240, 255 }
+    local timeBgColor = { 245, 245, 250, 255 }
+    local borderColor = { 210, 210, 220, 255 }
+    local rowBorderColor = { 235, 235, 240, 255 }
 
     local CELL_H = 48
+    local HEADER_H = 28
     local TIME_W = 38
     local dayCount = #sd.days
 
@@ -92,10 +158,11 @@ local function refreshScheduleGrid()
     local headerCells = {
         UI.Panel {
             width = TIME_W,
-            height = 28,
+            flexShrink = 0,
+            height = HEADER_H,
             justifyContent = "center",
             alignItems = "center",
-            backgroundColor = { 230, 230, 240, 255 },
+            backgroundColor = headerBgColor,
             children = {
                 UI.Label { text = "节", fontSize = 9, fontColor = textSec },
             },
@@ -104,13 +171,14 @@ local function refreshScheduleGrid()
     for d = 1, dayCount do
         headerCells[#headerCells + 1] = UI.Panel {
             flexGrow = 1,
+            flexShrink = 1,
             flexBasis = 0,
-            height = 28,
+            height = HEADER_H,
             justifyContent = "center",
             alignItems = "center",
-            backgroundColor = { 230, 230, 240, 255 },
+            backgroundColor = headerBgColor,
             borderLeftWidth = 1,
-            borderLeftColor = { 210, 210, 220, 255 },
+            borderLeftColor = borderColor,
             children = {
                 UI.Label { text = sd.days[d], fontSize = 9, fontColor = textColor },
             },
@@ -121,20 +189,21 @@ local function refreshScheduleGrid()
         width = "100%",
         flexDirection = "row",
         borderBottomWidth = 1,
-        borderBottomColor = { 200, 200, 210, 255 },
+        borderBottomColor = borderColor,
         children = headerCells,
     }
 
-    -- 课程网格
+    -- 课程网格行
     local gridRows = {}
     for p = 1, sd.periods do
         local rowCells = {
             UI.Panel {
                 width = TIME_W,
+                flexShrink = 0,
                 height = CELL_H,
                 justifyContent = "center",
                 alignItems = "center",
-                backgroundColor = { 245, 245, 250, 255 },
+                backgroundColor = timeBgColor,
                 flexDirection = "column",
                 gap = 1,
                 children = {
@@ -148,24 +217,7 @@ local function refreshScheduleGrid()
             local cellBg = white
             local cellChildren = {}
 
-            if scheduleEditCell_ and scheduleEditCell_[1] == p and scheduleEditCell_[2] == d then
-                local periodRef, dayRef = p, d
-                cellChildren[#cellChildren + 1] = UI.TextField {
-                    width = "100%",
-                    height = "100%",
-                    fontSize = 9,
-                    value = courseName,
-                    placeholder = "课程",
-                    backgroundColor = { 255, 255, 230, 255 },
-                    borderRadius = 0,
-                    paddingHorizontal = 2,
-                    onSubmit = function(self, value)
-                        scheduleData_.data[periodRef][dayRef] = value
-                        scheduleEditCell_ = nil
-                        refreshScheduleGrid()
-                    end,
-                }
-            elseif courseName ~= "" then
+            if courseName ~= "" then
                 local cc = getCourseColor(courseName)
                 cellBg = cc or { 200, 220, 255, 200 }
                 cellChildren[#cellChildren + 1] = UI.Label {
@@ -178,23 +230,16 @@ local function refreshScheduleGrid()
                 }
             end
 
-            local periodRef, dayRef = p, d
-            rowCells[#rowCells + 1] = UI.Button {
+            rowCells[#rowCells + 1] = UI.Panel {
                 flexGrow = 1,
+                flexShrink = 1,
                 flexBasis = 0,
                 height = CELL_H,
                 backgroundColor = cellBg,
-                hoverBackgroundColor = { 240, 240, 250, 255 },
-                pressedBackgroundColor = { 230, 230, 245, 255 },
-                borderRadius = 0,
                 borderLeftWidth = 1,
-                borderLeftColor = { 230, 230, 240, 255 },
+                borderLeftColor = rowBorderColor,
                 justifyContent = "center",
                 alignItems = "center",
-                onClick = function(self)
-                    scheduleEditCell_ = { periodRef, dayRef }
-                    refreshScheduleGrid()
-                end,
                 children = cellChildren,
             }
         end
@@ -203,7 +248,7 @@ local function refreshScheduleGrid()
             width = "100%",
             flexDirection = "row",
             borderBottomWidth = 1,
-            borderBottomColor = { 235, 235, 240, 255 },
+            borderBottomColor = rowBorderColor,
             children = rowCells,
         }
     end
@@ -234,7 +279,6 @@ end
 ---@return table UI.Panel
 function M.Create(onBack)
     initScheduleData()
-    scheduleEditCell_ = nil
 
     local headerBg = { 237, 237, 237, 255 }
     local textColor = { 25, 25, 25, 255 }
@@ -249,7 +293,7 @@ function M.Create(onBack)
         overflow = "hidden",
     }
 
-    refreshScheduleGrid()
+    buildScheduleGrid()
 
     return UI.Panel {
         width = "100%",

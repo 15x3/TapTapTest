@@ -192,7 +192,7 @@ function M.Create(onNavigate)
                         justifyContent = "center",
                         alignItems = "center",
                         children = {
-                            UI.Label { text = "杨", fontSize = 16, fontColor = { 200, 200, 220, 255 } },
+                            UI.Label { text = "陈", fontSize = 16, fontColor = { 200, 200, 220, 255 } },
                         },
                     },
                     UI.Panel {
@@ -201,8 +201,8 @@ function M.Create(onNavigate)
                         flexGrow = 1,
                         flexShrink = 1,
                         children = {
-                            UI.Label { text = "杨清", fontSize = 15, fontColor = { 240, 240, 245, 255 }, fontWeight = "bold" },
-                            UI.Label { text = "福建省石狮鹏山工贸学校", fontSize = 10, fontColor = { 140, 140, 150, 255 }, maxLines = 1 },
+                            UI.Label { text = "陈星河", fontSize = 15, fontColor = { 240, 240, 245, 255 }, fontWeight = "bold" },
+                            UI.Label { text = "星火市明德职业技术学校", fontSize = 10, fontColor = { 140, 140, 150, 255 }, maxLines = 1 },
                         },
                     },
                     UI.Panel {
@@ -256,7 +256,7 @@ function M.Create(onNavigate)
                                                 justifyContent = "center",
                                                 alignItems = "center",
                                                 children = {
-                                                    UI.Label { text = "工贸", fontSize = 12, fontColor = { 150, 150, 170, 255 } },
+                                                    UI.Label { text = "明德", fontSize = 12, fontColor = { 150, 150, 170, 255 } },
                                                 },
                                             },
                                             UI.Panel {
@@ -265,7 +265,7 @@ function M.Create(onNavigate)
                                                 gap = 4,
                                                 children = {
                                                     UI.Label {
-                                                        text = "福建省石狮鹏山工贸学校",
+                                                        text = "星火市明德职业技术学校",
                                                         fontSize = 14,
                                                         fontColor = { 240, 240, 245, 255 },
                                                         fontWeight = "bold",

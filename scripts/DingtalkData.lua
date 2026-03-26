@@ -53,6 +53,9 @@ local function ensureScenarios()
             options    = row.options or "",
             timeout    = tonumber(row.timeout) or 0,
             default_next = row.default_next or "",
+            tag        = row.tag or "",
+            thresholds = row.thresholds or "",
+            require_tag = row.require_tag or "",
         }
     end
 end

@@ -12,6 +12,12 @@ local C = Common.C
 
 local M = {}
 
+-- 输入框颜色常量
+local INPUT_BG_AUTO   = { 255, 255, 255, 255 }  -- 自动输入/默认：白色
+local INPUT_BG_MANUAL = { 34, 120, 69, 255 }     -- 手动输入：深绿色
+local INPUT_TEXT_AUTO   = { 25, 25, 25, 255 }     -- 自动输入文字颜色
+local INPUT_TEXT_MANUAL = { 255, 255, 255, 255 }  -- 手动输入文字颜色（白色，配深绿背景）
+
 -- 模块级变量：事件系统状态
 local activeManager_ = nil
 local pendingScroll_ = nil
@@ -147,6 +153,19 @@ function M.Create(chatName, chatIconBg, onBack)
 
         onBranchMatched = function(nextId, matchType)
             -- 分支匹配完成后的回调（可选：显示匹配方式提示）
+        end,
+
+        onInputStateChanged = function(isManual)
+            -- 输入状态变化：true=手动输入, false=自动输入, nil=非输入状态
+            if inputField then
+                if isManual == true then
+                    inputField:SetBackgroundColor(INPUT_BG_MANUAL)
+                    inputField:SetFontColor(INPUT_TEXT_MANUAL)
+                else
+                    inputField:SetBackgroundColor(INPUT_BG_AUTO)
+                    inputField:SetFontColor(INPUT_TEXT_AUTO)
+                end
+            end
         end,
 
         onDone = function()

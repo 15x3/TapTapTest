@@ -9,9 +9,7 @@
 local UI = require("urhox-libs/UI")
 local DingtalkApp = require("DingtalkApp")
 local WechatApp = require("WechatApp")
-local SettingsApp = require("SettingsApp")
 local ScheduleApp = require("ScheduleApp")
-local MapApp = require("MapApp")
 local GameTime = require("Utils.GameTime")
 
 -- ============================================================================
@@ -76,9 +74,6 @@ local APPS = {
     { name = "钉钉",     color = COLORS.APP_DINGTALK, symbol = "DD",  appId = "dingtalk" },
     { name = "微信",     color = COLORS.APP_WECHAT,   symbol = "WX",  appId = "wechat" },
     { name = "我的课表", color = COLORS.APP_YELLOW,    symbol = "KB",  appId = "schedule" },
-    { name = "商店",     color = COLORS.APP_PURPLE,    symbol = "SHP", appId = nil },
-    { name = "地图",     color = COLORS.APP_CYAN,      symbol = "MAP", appId = "map" },
-    { name = "设置",     color = COLORS.APP_RED,       symbol = "SET", appId = "settings" },
 }
 
 -- ============================================================================
@@ -132,21 +127,15 @@ function OpenApp(appId)
     local appNames = {
         dingtalk = "钉钉",
         wechat   = "微信",
-        settings = "设置",
         schedule = "我的课表",
-        map      = "地图",
     }
 
     if appId == "dingtalk" then
         screenContainer_:AddChild(DingtalkApp.Create(GoHome))
     elseif appId == "wechat" then
         screenContainer_:AddChild(WechatApp.Create(GoHome))
-    elseif appId == "settings" then
-        screenContainer_:AddChild(SettingsApp.Create(GoHome))
     elseif appId == "schedule" then
         screenContainer_:AddChild(ScheduleApp.Create(GoHome))
-    elseif appId == "map" then
-        screenContainer_:AddChild(MapApp.Create(GoHome))
     end
 
     -- 更新状态栏标题
@@ -185,6 +174,8 @@ function CreateUI()
         justifyContent = "center",
         alignItems = "center",
         backgroundColor = COLORS.BG,
+        backgroundImage = "image/teacher_desk_bg_20260326085659.png",
+        backgroundFit = "cover",
         children = {
             CreatePixelBgDecor(),
             CreatePhoneFrame(),
@@ -384,6 +375,8 @@ function CreateHomeContent()
         width = "100%",
         height = "100%",
         backgroundColor = COLORS.SCREEN_BG,
+        backgroundImage = "image/phone_wallpaper_20260326085604.png",
+        backgroundFit = "cover",
         flexDirection = "column",
         justifyContent = "flex-start",
         alignItems = "center",
@@ -433,14 +426,9 @@ end
 
 --- 应用图标网格
 function CreateAppGrid()
-    local row1 = {}
-    local row2 = {}
-    for i, app in ipairs(APPS) do
-        if i <= 3 then
-            row1[#row1 + 1] = CreatePixelAppIcon(app)
-        else
-            row2[#row2 + 1] = CreatePixelAppIcon(app)
-        end
+    local icons = {}
+    for _, app in ipairs(APPS) do
+        icons[#icons + 1] = CreatePixelAppIcon(app)
     end
 
     return UI.Panel {
@@ -449,8 +437,7 @@ function CreateAppGrid()
         gap = 16,
         marginTop = 8,
         children = {
-            UI.Panel { flexDirection = "row", gap = 24, children = row1 },
-            UI.Panel { flexDirection = "row", gap = 24, children = row2 },
+            UI.Panel { flexDirection = "row", gap = 24, children = icons },
         },
     }
 end
@@ -505,12 +492,6 @@ function GetCurrentDate()
     return string.format("%d月%d日 %s", t.month, t.day, weekdays[t.wday])
 end
 
--- ShowToast 全局快捷方式（委托给 SettingsApp）
-function ShowToast(message)
-    SettingsApp.ShowToast(message)
-end
-
-
 -- ============================================================================
 -- 更新
 -- ============================================================================
@@ -522,11 +503,9 @@ local lastMinute_ = -1
 function HandleUpdate(eventType, eventData)
     local dt = eventData["TimeStep"]:GetFloat()
 
-    -- 驱动设置应用的 Toast
-    SettingsApp.UpdateToast(dt)
-
+    local forceDirty = GameTime.ConsumeDirty()
     local t = GameTime.Now()
-    if t.min ~= lastMinute_ then
+    if t.min ~= lastMinute_ or forceDirty then
         lastMinute_ = t.min
         local timeStr = GetCurrentTime()
         local dateStr = GetCurrentDate()

@@ -317,4 +317,75 @@ function SA.SelectBranch(userText, branches, defaultNextId)
     return nil, "none"
 end
 
+-- ============================================================================
+-- 关键词计数 + 阈值分支（用于 thresholds 模式）
+-- ============================================================================
+
+--- 统计文本中匹配到的关键词总数
+--- 关键词池为竖线分隔的字符串，从所有分支的 keywords 合并而来
+---@param text string 用户输入的文本
+---@param keywordPool string 竖线分隔的关键词池，如 "爬山|登山|运动|海边|游泳"
+---@return number count 匹配到的关键词总数
+function SA.CountKeywords(text, keywordPool)
+    if not text or text == "" or not keywordPool or keywordPool == "" then
+        return 0
+    end
+    local count = 0
+    for kw in keywordPool:gmatch("[^|]+") do
+        local trimmed = kw:match("^%s*(.-)%s*$")
+        if trimmed and trimmed ~= "" then
+            if text:find(trimmed, 1, true) then
+                count = count + 1
+            end
+        end
+    end
+    return count
+end
+
+--- 根据关键词匹配数量和阈值字符串选择分支
+--- 格式: "branchA,3,branchB,1,branchC"
+---   解析为: count>=3 → branchA, count>=1 → branchB, 否则 → branchC
+---   规则: 逗号分隔，奇数位为分支ID，偶数位为阈值（数字），最后一个无阈值的为兜底分支
+---@param count number 匹配到的关键词数量
+---@param thresholdsStr string 阈值字符串
+---@return string|nil nextId 匹配到的分支 ID
+---@return string matchType "threshold" | "fallback" | "none"
+function SA.SelectBranchByThresholds(count, thresholdsStr)
+    if not thresholdsStr or thresholdsStr == "" then
+        return nil, "none"
+    end
+
+    -- 解析阈值列表
+    local parts = {}
+    for part in thresholdsStr:gmatch("[^,]+") do
+        local trimmed = part:match("^%s*(.-)%s*$")
+        if trimmed and trimmed ~= "" then
+            parts[#parts + 1] = trimmed
+        end
+    end
+
+    -- 按 (branchId, threshold) 配对解析
+    -- 格式: branchA, 3, branchB, 1, branchC
+    -- 最后一个如果没有配对数字，则为兜底分支
+    local i = 1
+    while i <= #parts do
+        local branchId = parts[i]
+        local thresholdStr = parts[i + 1]
+        local threshold = tonumber(thresholdStr)
+
+        if threshold then
+            -- 有阈值: count >= threshold 则匹配
+            if count >= threshold then
+                return branchId, "threshold"
+            end
+            i = i + 2
+        else
+            -- 无阈值（最后的兜底分支）
+            return branchId, "fallback"
+        end
+    end
+
+    return nil, "none"
+end
+
 return SA

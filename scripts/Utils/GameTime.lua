@@ -21,6 +21,9 @@ local inited_ = false
 ---@type number|nil
 local frozenAt_ = nil
 
+--- 脏标记：SetTime/Freeze/Unfreeze 后置 true，供外部检测并强制刷新 UI
+local dirty_ = false
+
 -- ============================================================================
 -- 核心 API
 -- ============================================================================
@@ -79,30 +82,35 @@ end
 ---@param hour number 小时 (0-23)
 ---@param min number 分钟 (0-59)
 function GameTime.SetTime(hour, min)
-    local virtualNow = os.time() + offset_
+    local base = frozenAt_ or os.time()
+    local virtualNow = base + offset_
     local t = os.date("*t", virtualNow)
     t.hour = hour
     t.min  = min
     t.sec  = 0
     local newTime = os.time(t)
-    offset_ = newTime - os.time()
+    offset_ = newTime - base
+    dirty_ = true
 end
 
 --- 调整星期几，时分秒不变
 ---@param wday number 星期几 (1=周日, 2=周一, 3=周二, ..., 7=周六)
 function GameTime.SetWeekday(wday)
-    local virtualNow = os.time() + offset_
+    local base = frozenAt_ or os.time()
+    local virtualNow = base + offset_
     local t = os.date("*t", virtualNow)
     local dayDiff = wday - t.wday
     t.day = t.day + dayDiff
     local newTime = os.time(t)
-    offset_ = newTime - os.time()
+    offset_ = newTime - base
+    dirty_ = true
 end
 
 --- 完整设置日期时间
 ---@param dt table 包含 {year, month, day, hour, min, sec} 中的部分或全部字段
 function GameTime.SetDateTime(dt)
-    local virtualNow = os.time() + offset_
+    local base = frozenAt_ or os.time()
+    local virtualNow = base + offset_
     local t = os.date("*t", virtualNow)
     -- 用传入的字段覆盖
     t.year  = dt.year  or t.year
@@ -112,7 +120,8 @@ function GameTime.SetDateTime(dt)
     t.min   = dt.min   or t.min
     t.sec   = dt.sec   or t.sec
     local newTime = os.time(t)
-    offset_ = newTime - os.time()
+    offset_ = newTime - base
+    dirty_ = true
 end
 
 --- 获取当前偏移量（秒）
@@ -135,6 +144,7 @@ end
 function GameTime.Freeze()
     if not frozenAt_ then
         frozenAt_ = os.time()
+        dirty_ = true
     end
 end
 
@@ -145,6 +155,7 @@ function GameTime.Unfreeze()
         -- 将这段差值补偿到 offset 中，使解冻后虚拟时间从冻结时刻继续
         offset_ = offset_ - (os.time() - frozenAt_)
         frozenAt_ = nil
+        dirty_ = true
     end
 end
 
@@ -152,6 +163,17 @@ end
 ---@return boolean
 function GameTime.IsFrozen()
     return frozenAt_ ~= nil
+end
+
+--- 检查并消费脏标记（调用后自动清除）
+--- 用于外部在 Update 中检测时间是否被修改过，以强制刷新 UI
+---@return boolean 是否有待刷新的时间变更
+function GameTime.ConsumeDirty()
+    if dirty_ then
+        dirty_ = false
+        return true
+    end
+    return false
 end
 
 return GameTime
