@@ -1,4 +1,4 @@
-id,chat_match,delay,type,sender,text,next,options,default_next,tag,thresholds,require_tag
+id,chat_match,delay,type,sender,text,next,options,default_next,tag,thresholds,require_tag,trigger_time
 ,,,,,,,,,,,
 ,,,,,【功能测试案例 - 覆盖所有核心功能】,,,,,,
 ,,,,,"使用方法：创建一个名为 ""功能测试"" 的聊天，然后进入聊天测试",,,,,,

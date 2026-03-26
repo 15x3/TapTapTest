@@ -5,6 +5,7 @@
 
 local CSVParser = require "Utils.CSVParser"
 local Colors = require "Utils.Colors"
+local EventScheduler = require "Utils.EventScheduler"
 
 local Data = {}
 
@@ -47,7 +48,28 @@ local function ensureScenarios()
             tag        = row.tag or "",
             thresholds = row.thresholds or "",
             require_tag = row.require_tag or "",
+            trigger_time = row.trigger_time or "",
         }
+
+        -- 解析 trigger_time 并注册定时事件（格式: "HH:MM"）
+        local tt = row.trigger_time or ""
+        if tt ~= "" then
+            local hStr, mStr = tt:match("^(%d+):(%d+)$")
+            if hStr then
+                local chatMatch = row.chat_match or "*"
+                if chatMatch ~= "*" and chatMatch ~= "" then
+                    EventScheduler.Register({
+                        hour        = tonumber(hStr),
+                        min         = tonumber(mStr),
+                        app         = "wechat",
+                        chatName    = chatMatch,
+                        eventId     = (row.id and row.id ~= "") and row.id or nil,
+                        once        = true,
+                        require_tag = row.require_tag or "",
+                    })
+                end
+            end
+        end
     end
 end
 

@@ -827,7 +827,11 @@ end
 -- 对外接口
 -- ============================================================================
 
-function App.Create(onGoHome)
+--- 创建完整的微言应用界面
+---@param onGoHome fun() 返回主屏幕的回调
+---@param defaultChatName string|nil 可选，创建后自动打开指定聊天
+---@return table UI 组件
+function App.Create(onGoHome, defaultChatName)
     goHomeFn_ = onGoHome
 
     wxContentContainer_ = UI.Panel {
@@ -854,6 +858,17 @@ function App.Create(onGoHome)
 
     wxActiveTab_ = "chat"
     refreshTabBar()
+
+    -- 如果指定了默认聊天名，自动导航到该聊天
+    if defaultChatName and defaultChatName ~= "" then
+        local chatList = WechatData.GetChats()
+        for _, chat in ipairs(chatList) do
+            if chat.name == defaultChatName then
+                navigateToChat(chat)
+                break
+            end
+        end
+    end
 
     return UI.Panel {
         width = "100%",

@@ -1,4 +1,4 @@
-id,chat_match,delay,type,sender,text,next,options,timeout,default_next,tag,thresholds,require_tag
+id,chat_match,delay,type,sender,text,next,options,timeout,default_next,tag,thresholds,require_tag,trigger_time
 ,,,,,,,,,,,,,
 ,,,,,,,,,,,,,
 ,,,,,,,,,,,,,

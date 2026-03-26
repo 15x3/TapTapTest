@@ -12,6 +12,7 @@ local WechatApp = require("WechatApp")
 local ScheduleApp = require("ScheduleApp")
 local GameTime = require("Utils.GameTime")
 local DeskWidget = require("Utils.DeskWidget")
+local EventScheduler = require("Utils.EventScheduler")
 
 -- ============================================================================
 -- 全局变量
@@ -34,6 +35,12 @@ local WALLPAPERS = {
 }
 local timeLabel_ = nil  -- 状态栏时间标签（直接引用，避免 FindById 丢失）
 local lastMinute_ = -1  -- 上次更新的分钟值（用于跳过无变化帧）
+
+-- 通知系统
+local notifBanner_ = nil       -- 通知横幅 UI 元素
+local notifTimer_ = 0          -- 通知剩余显示时间
+local notifQueue_ = {}         -- 待处理的触发事件队列
+local NOTIF_DURATION = 4.0     -- 通知显示时长（秒）
 
 -- 手机配置
 local PHONE = {
@@ -140,7 +147,9 @@ local function syncStatusBarTime()
 end
 
 --- 打开应用
-function OpenApp(appId)
+---@param appId string 应用 ID
+---@param chatName string|nil 可选，自动打开指定聊天
+function OpenApp(appId, chatName)
     if not screenContainer_ then return end
     currentApp_ = appId
     screenContainer_:ClearChildren()
@@ -152,9 +161,9 @@ function OpenApp(appId)
     }
 
     if appId == "dingtalk" then
-        screenContainer_:AddChild(DingtalkApp.Create(GoHome))
+        screenContainer_:AddChild(DingtalkApp.Create(GoHome, chatName))
     elseif appId == "wechat" then
-        screenContainer_:AddChild(WechatApp.Create(GoHome))
+        screenContainer_:AddChild(WechatApp.Create(GoHome, chatName))
     elseif appId == "schedule" then
         screenContainer_:AddChild(ScheduleApp.Create(GoHome))
     end
@@ -677,6 +686,127 @@ function GetCurrentDate()
 end
 
 -- ============================================================================
+-- 通知系统
+-- ============================================================================
+
+--- 应用图标颜色映射
+local APP_NOTIF_COLORS = {
+    dingtalk = { 48, 118, 255, 255 },
+    wechat   = { 7, 193, 96, 255 },
+}
+
+--- 应用名称映射
+local APP_NOTIF_NAMES = {
+    dingtalk = "叮叮",
+    wechat   = "微言",
+}
+
+--- 显示通知横幅
+---@param ev ScheduledEvent 触发的事件
+local function showNotifBanner(ev)
+    -- 先移除旧横幅
+    if notifBanner_ and phoneFrame_ then
+        phoneFrame_:RemoveChild(notifBanner_)
+        notifBanner_ = nil
+    end
+
+    if not phoneFrame_ then return end
+
+    local appColor = APP_NOTIF_COLORS[ev.app] or { 100, 100, 100, 255 }
+    local appName = APP_NOTIF_NAMES[ev.app] or ev.app
+    local desc = ev.chatName .. " 发来新消息"
+
+    notifBanner_ = UI.Button {
+        position = "absolute",
+        top = 60,           -- 状态栏下方
+        left = 8,
+        right = 8,
+        height = 56,
+        backgroundColor = { 40, 40, 55, 240 },
+        hoverBackgroundColor = { 55, 55, 75, 240 },
+        pressedBackgroundColor = { 70, 70, 90, 240 },
+        borderRadius = 12,
+        borderWidth = 1,
+        borderColor = { 80, 80, 110, 180 },
+        flexDirection = "row",
+        alignItems = "center",
+        paddingHorizontal = 10,
+        gap = 10,
+        zIndex = 999,
+        boxShadow = {
+            { x = 0, y = 4, blur = 12, spread = 2, color = { 0, 0, 0, 120 } },
+        },
+        onClick = function(self)
+            -- 点击通知横幅：打开对应应用并导航到聊天
+            notifTimer_ = 0  -- 立即隐藏
+            if notifBanner_ and phoneFrame_ then
+                phoneFrame_:RemoveChild(notifBanner_)
+                notifBanner_ = nil
+            end
+            OpenApp(ev.app, ev.chatName)
+        end,
+        children = {
+            -- 应用图标
+            UI.Panel {
+                width = 36, height = 36,
+                backgroundColor = appColor,
+                borderRadius = 8,
+                justifyContent = "center",
+                alignItems = "center",
+                pointerEvents = "none",
+                children = {
+                    UI.Label {
+                        text = string.sub(appName, 1, 3),  -- UTF8 首字
+                        fontSize = 10,
+                        fontColor = { 255, 255, 255, 255 },
+                    },
+                },
+            },
+            -- 文字内容
+            UI.Panel {
+                flexGrow = 1, flexShrink = 1,
+                flexDirection = "column",
+                gap = 2,
+                pointerEvents = "none",
+                children = {
+                    UI.Label {
+                        text = appName,
+                        fontSize = 11,
+                        fontColor = { 220, 220, 240, 255 },
+                    },
+                    UI.Label {
+                        text = desc,
+                        fontSize = 10,
+                        fontColor = { 160, 160, 180, 255 },
+                        maxLines = 1,
+                    },
+                },
+            },
+            -- 时间
+            UI.Label {
+                text = "现在",
+                fontSize = 9,
+                fontColor = { 120, 120, 150, 255 },
+                pointerEvents = "none",
+            },
+        },
+    }
+
+    phoneFrame_:AddChild(notifBanner_)
+    notifTimer_ = NOTIF_DURATION
+    print(string.format("[通知] 显示横幅: %s - %s", appName, ev.chatName))
+end
+
+--- 处理触发事件队列（每次只显示一个横幅，前一个消失后显示下一个）
+local function processNotifQueue()
+    if #notifQueue_ == 0 then return end
+    if notifBanner_ then return end  -- 当前有横幅，等它消失
+
+    local ev = table.remove(notifQueue_, 1)
+    showNotifBanner(ev)
+end
+
+-- ============================================================================
 -- 更新
 -- ============================================================================
 
@@ -711,5 +841,23 @@ function HandleUpdate(eventType, eventData)
                 homePanel_:SetStyle({ backgroundImage = newImage })
             end
         end
+
+        -- 定时事件检查（每分钟变化时检查一次即可）
+        local triggered = EventScheduler.CheckTriggers()
+        for _, ev in ipairs(triggered) do
+            notifQueue_[#notifQueue_ + 1] = ev
+        end
     end
+
+    -- 通知横幅计时与队列处理
+    if notifBanner_ then
+        notifTimer_ = notifTimer_ - dt
+        if notifTimer_ <= 0 then
+            if phoneFrame_ then
+                phoneFrame_:RemoveChild(notifBanner_)
+            end
+            notifBanner_ = nil
+        end
+    end
+    processNotifQueue()
 end

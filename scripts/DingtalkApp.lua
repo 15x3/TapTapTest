@@ -443,8 +443,9 @@ end
 
 --- 创建完整的叮叮应用界面
 ---@param onGoHome fun() 返回主屏幕的回调
+---@param defaultChatName string|nil 可选，创建后自动打开指定聊天
 ---@return table UI 组件
-function App.Create(onGoHome)
+function App.Create(onGoHome, defaultChatName)
     goHomeFn_ = onGoHome
 
     -- 内容容器
@@ -474,6 +475,17 @@ function App.Create(onGoHome)
     -- 初始化 Tab 栏内容
     dtActiveTab_ = "msg"
     refreshTabBar()
+
+    -- 如果指定了默认聊天名，自动导航到该聊天
+    if defaultChatName and defaultChatName ~= "" then
+        local chatList = DingtalkData.GetChats()
+        for _, chat in ipairs(chatList) do
+            if chat.name == defaultChatName then
+                navigateTo("chat", chat)
+                break
+            end
+        end
+    end
 
     return UI.Panel {
         width = "100%",
