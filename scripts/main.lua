@@ -13,6 +13,9 @@ local ScheduleApp = require("ScheduleApp")
 local GameTime = require("Utils.GameTime")
 local DeskWidget = require("Utils.DeskWidget")
 local EventScheduler = require("Utils.EventScheduler")
+local CSVParser = require("Utils.CSVParser")
+local WechatData = require("WechatData")
+local DingtalkData = require("DingtalkData")
 
 -- ============================================================================
 -- 全局变量
@@ -36,11 +39,20 @@ local WALLPAPERS = {
 local timeLabel_ = nil  -- 状态栏时间标签（直接引用，避免 FindById 丢失）
 local lastMinute_ = -1  -- 上次更新的分钟值（用于跳过无变化帧）
 
+-- 桌面电子时钟
+local deskClockLabel_ = nil    -- 电子时钟时间 Label（用于每帧更新）
+local deskClockSecLabel_ = nil -- 电子时钟秒数 Label
+local lastClockSec_ = -1      -- 上次更新的秒值
+
 -- 通知系统
 local notifBanner_ = nil       -- 通知横幅 UI 元素
 local notifTimer_ = 0          -- 通知剩余显示时间
 local notifQueue_ = {}         -- 待处理的触发事件队列
 local NOTIF_DURATION = 4.0     -- 通知显示时长（秒）
+
+-- CSV 热重载
+local CSV_CHECK_INTERVAL = 2.0 -- 每 2 秒检查一次 CSV 变更
+local csvCheckTimer_ = 0       -- 检查计时器
 
 -- 手机配置
 local PHONE = {
@@ -104,6 +116,13 @@ local APPS = {
 function Start()
     graphics.windowTitle = "Pixel Phone Simulator"
 
+    -- 强制清除所有数据缓存（确保重新构建后读取最新 CSV）
+    WechatData.Invalidate()
+    DingtalkData.Invalidate()
+    ScheduleApp.Invalidate()
+    EventScheduler.Clear()
+    CSVParser.ResetTracking()
+
     GameTime.Init()
     InitUI()
     CreateUI()
@@ -125,7 +144,10 @@ function InitUI()
         fonts = {
             { family = "sans", weights = {
                 normal = "Fonts/zpix.ttf",
-            } }
+            } },
+            { family = "digital", weights = {
+                normal = "Fonts/DSEG7Classic-Bold.ttf",
+            } },
         },
         scale = UI.Scale.DEFAULT,
     })
@@ -224,7 +246,7 @@ function CreateUI()
 
     UI.SetRoot(uiRoot_)
 
-    -- 桌面便签控件示例
+    -- 桌面便签控件
     local stickyNote = DeskWidget.Create({
         x = 16,
         y = 60,
@@ -260,6 +282,107 @@ function CreateUI()
         },
     })
     uiRoot_:AddChild(stickyNote:GetElement())
+
+    -- 桌面电子时钟
+    uiRoot_:AddChild(CreateDeskClock())
+end
+
+--- 创建桌面电子时钟控件
+function CreateDeskClock()
+    local t = GameTime.Now()
+    local timeStr = string.format("%02d:%02d", t.hour, t.min)
+    local secStr = string.format(":%02d", t.sec)
+    lastClockSec_ = t.sec
+
+    -- 控件尺寸（2x 放大）
+    local CW = 300
+    local CH = 140
+
+    -- LCD 亮色（绿色荧光）
+    local LCD_COLOR = { 50, 220, 120, 255 }
+    -- 秒数颜色（稍暗）
+    local SEC_COLOR = { 50, 200, 110, 180 }
+
+    -- 主时间 Label（DSEG7 字形偏大，fontSize 要比视觉预期小）
+    deskClockLabel_ = UI.Label {
+        text = timeStr,
+        fontSize = 46,
+        fontFamily = "digital",
+        fontColor = LCD_COLOR,
+        textAlign = "center",
+        pointerEvents = "none",
+    }
+
+    -- 秒数 Label
+    deskClockSecLabel_ = UI.Label {
+        text = secStr,
+        fontSize = 24,
+        fontFamily = "digital",
+        fontColor = SEC_COLOR,
+        pointerEvents = "none",
+    }
+
+    -- 日期行（像素字体）
+    local weekdays = { "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT" }
+    local dateStr = string.format("%02d-%02d  %s", t.month, t.day, weekdays[t.wday])
+
+    local deskClock = DeskWidget.Create({
+        x = 16,
+        y = 180,
+        width = CW,
+        height = CH,
+        -- 外壳：白色像素风圆角矩形（模拟实物闹钟外壳）
+        backgroundColor = { 235, 235, 230, 245 },
+        borderRadius = 14,
+        borderWidth = 3,
+        borderColor = { 210, 210, 205, 255 },
+        boxShadow = {
+            { x = 0, y = 6, blur = 24, spread = 3, color = { 0, 0, 0, 150 } },
+            { x = 0, y = 2, blur = 0, spread = 0, color = { 170, 170, 165, 255 } },
+        },
+        justifyContent = "center",
+        alignItems = "center",
+        zIndex = 190,
+        children = {
+            -- LCD 屏幕区域（深色内嵌屏）
+            UI.Panel {
+                width = CW - 30,
+                height = CH - 30,
+                backgroundColor = { 15, 35, 25, 240 },
+                borderRadius = 8,
+                borderWidth = 2,
+                borderColor = { 60, 80, 70, 200 },
+                flexDirection = "column",
+                justifyContent = "center",
+                alignItems = "center",
+                pointerEvents = "none",
+                children = {
+                    -- 时:分 + 秒 行
+                    UI.Panel {
+                        flexDirection = "row",
+                        alignItems = "flex-end",
+                        pointerEvents = "none",
+                        children = {
+                            deskClockLabel_,
+                            deskClockSecLabel_,
+                        },
+                    },
+                    -- 日期行
+                    UI.Label {
+                        id = "deskClockDate",
+                        text = dateStr,
+                        fontSize = 14,
+                        fontColor = { 50, 180, 100, 140 },
+                        textAlign = "center",
+                        pointerEvents = "none",
+                        marginTop = 2,
+                    },
+                },
+            },
+        },
+    })
+
+    return deskClock:GetElement()
 end
 
 --- 背景像素装饰角标
@@ -550,7 +673,7 @@ end
 --- 根据虚拟时间选择壁纸
 function GetWallpaperForTime()
     local t = GameTime.Now()
-    local hm = t.hour * 60 + t.min  -- 转为分钟数方便比较
+    local hm = t.hour * 60 + t.min
     for _, wp in ipairs(WALLPAPERS) do
         if hm >= wp.hour * 60 + wp.min then
             return wp.slot, wp.image
@@ -849,6 +972,22 @@ function HandleUpdate(eventType, eventData)
         end
     end
 
+    -- 桌面电子时钟秒级更新（独立于分钟检测）
+    if deskClockLabel_ and t.sec ~= lastClockSec_ then
+        lastClockSec_ = t.sec
+        deskClockLabel_:SetText(string.format("%02d:%02d", t.hour, t.min))
+        deskClockSecLabel_:SetText(string.format(":%02d", t.sec))
+
+        -- 每分钟更新日期行
+        if t.sec == 0 then
+            local weekdays = { "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT" }
+            local dateLabel = uiRoot_:FindById("deskClockDate")
+            if dateLabel then
+                dateLabel:SetText(string.format("%02d-%02d  %s", t.month, t.day, weekdays[t.wday]))
+            end
+        end
+    end
+
     -- 通知横幅计时与队列处理
     if notifBanner_ then
         notifTimer_ = notifTimer_ - dt
@@ -860,4 +999,67 @@ function HandleUpdate(eventType, eventData)
         end
     end
     processNotifQueue()
+
+    -- CSV 热重载检测（每 CSV_CHECK_INTERVAL 秒检查一次）
+    csvCheckTimer_ = csvCheckTimer_ + dt
+    if csvCheckTimer_ >= CSV_CHECK_INTERVAL then
+        csvCheckTimer_ = 0
+        CheckCSVReload()
+    end
+end
+
+-- ============================================================================
+-- CSV 热重载
+-- ============================================================================
+
+--- 强制让 ResourceCache 重新从磁盘读取指定的 CSV 文件
+---@param paths string[] 资源路径数组
+local function forceReloadResources(paths)
+    for _, path in ipairs(paths) do
+        -- ReloadResourceWithDependencies 让 ResourceCache 丢弃内部缓存，下次 GetFile 从磁盘读取
+        cache:ReloadResourceWithDependencies(path)
+    end
+end
+
+--- 检查 CSV 文件是否有变化，有则清除缓存并刷新 UI
+function CheckCSVReload()
+    -- 基于文件系统修改时间检测变化（绕过 ResourceCache）
+    local wxChanged = CSVParser.AnyChanged(WechatData.CSV_PATHS)
+    local dtChanged = CSVParser.AnyChanged(DingtalkData.CSV_PATHS)
+    local schChanged = CSVParser.AnyChanged(ScheduleApp.CSV_PATHS)
+
+    if not wxChanged and not dtChanged and not schChanged then
+        return  -- 无变化
+    end
+
+    print("[HotReload] 检测到 CSV 变更，开始重载...")
+
+    -- 清除定时事件（ensureScenarios 会重新注册）
+    EventScheduler.Clear()
+
+    -- 按模块：强制刷新 ResourceCache + 清除 Lua 层缓存
+    if wxChanged then
+        forceReloadResources(WechatData.CSV_PATHS)
+        WechatData.Invalidate()
+        print("[HotReload]   微信数据已重载")
+    end
+    if dtChanged then
+        forceReloadResources(DingtalkData.CSV_PATHS)
+        DingtalkData.Invalidate()
+        print("[HotReload]   钉钉数据已重载")
+    end
+    if schChanged then
+        forceReloadResources(ScheduleApp.CSV_PATHS)
+        ScheduleApp.Invalidate()
+        print("[HotReload]   课表数据已重载")
+    end
+
+    -- 刷新当前显示的 UI
+    if currentApp_ then
+        OpenApp(currentApp_)
+    else
+        GoHome()
+    end
+
+    print("[HotReload] CSV 重载完成")
 end

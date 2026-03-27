@@ -1,11 +1,35 @@
 -- ============================================================================
 -- 聊天气泡公共组件 (Chat Bubble Component)
 -- 功能: 统一的聊天气泡 UI 创建，供叮叮和微言聊天页面复用
+-- 支持: 点击气泡复制消息文本到剪贴板
 -- ============================================================================
 
 local UI = require("urhox-libs/UI")
 
 local ChatBubble = {}
+
+--- 复制成功回调（由 ChatPage 注册，用于显示 toast 提示）
+---@type fun(text: string)|nil
+ChatBubble._onCopied = nil
+
+--- 注册复制成功回调
+---@param callback fun(text: string)|nil
+function ChatBubble.SetOnCopied(callback)
+    ChatBubble._onCopied = callback
+end
+
+--- 生成略深的 hover/pressed 颜色
+---@param color table RGBA
+---@param delta number 变暗幅度（0~255）
+---@return table RGBA
+local function darken(color, delta)
+    return {
+        math.max(0, color[1] - delta),
+        math.max(0, color[2] - delta),
+        math.max(0, color[3] - delta),
+        color[4],
+    }
+end
 
 -- ============================================================================
 -- 气泡样式预设
@@ -73,17 +97,28 @@ function ChatBubble.Create(msg, chatIconBg, style)
         displayText = " "  -- 防止空文本导致布局异常
     end
 
-    local bubble = UI.Panel {
+    local bubble = UI.Button {
         maxWidth = "70%",
         backgroundColor = bubbleBg,
+        hoverBackgroundColor = darken(bubbleBg, 15),
+        pressedBackgroundColor = darken(bubbleBg, 30),
         borderRadius = style.bubbleRadius,
         paddingHorizontal = 10,
         paddingVertical = 8,
+        onClick = function(self)
+            if msg.text and msg.text ~= "" then
+                ui:SetClipboardText(msg.text)
+                if ChatBubble._onCopied then
+                    ChatBubble._onCopied(msg.text)
+                end
+            end
+        end,
         children = {
             UI.Label {
                 text = displayText,
                 fontSize = 11,
                 fontColor = style.textColor,
+                pointerEvents = "none",
             },
         },
     }

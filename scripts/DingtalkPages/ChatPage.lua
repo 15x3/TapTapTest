@@ -30,6 +30,11 @@ local updateSubscribed_ = false
 -- 自动填充：记录上一次输入框文本，用于检测文本变化（兼容中文输入法）
 local lastInputText_ = ""
 
+-- 复制 toast 相关
+local copyToastLabel_ = nil   -- "已复制" toast Label
+local copyToastTimer_ = 0     -- toast 剩余显示时间
+local COPY_TOAST_DURATION = 1.5
+
 local function ensureUpdate()
     if updateSubscribed_ then return end
     updateSubscribed_ = true
@@ -60,6 +65,14 @@ function HandleDingtalkChatPageUpdate(eventType, eventData)
         local sv = pendingScroll_
         pendingScroll_ = nil
         sv:ScrollToBottom()
+    end
+
+    -- 复制 toast 计时
+    if copyToastTimer_ > 0 then
+        copyToastTimer_ = copyToastTimer_ - dt
+        if copyToastTimer_ <= 0 and copyToastLabel_ then
+            copyToastLabel_:SetVisible(false)
+        end
     end
 end
 
@@ -175,6 +188,14 @@ function M.Create(chatName, chatIconBg, onBack)
 
     activeManager_ = manager
 
+    -- 注册复制成功回调 → 显示 toast
+    ChatBubble.SetOnCopied(function(text)
+        if copyToastLabel_ then
+            copyToastLabel_:SetVisible(true)
+            copyToastTimer_ = COPY_TOAST_DURATION
+        end
+    end)
+
     -- 初始历史消息加载完后，滚动到底部
     pendingScroll_ = scrollView
 
@@ -216,6 +237,25 @@ function M.Create(chatName, chatIconBg, onBack)
     activeInputField_ = inputField
     activeSendFunc_ = sendMessage
 
+    -- "已复制" toast 覆盖层
+    copyToastLabel_ = UI.Panel {
+        position = "absolute",
+        top = "45%",
+        alignSelf = "center",
+        backgroundColor = { 0, 0, 0, 180 },
+        borderRadius = 8,
+        paddingHorizontal = 20,
+        paddingVertical = 10,
+        visible = false,
+        children = {
+            UI.Label {
+                text = "已复制",
+                fontSize = 13,
+                fontColor = { 255, 255, 255, 255 },
+            },
+        },
+    }
+
     return UI.Panel {
         width = "100%",
         height = "100%",
@@ -250,6 +290,9 @@ function M.Create(chatName, chatIconBg, onBack)
                             activeSendFunc_ = nil
                             inputBarPanel_ = nil
                             lastInputText_ = ""
+                            copyToastLabel_ = nil
+                            copyToastTimer_ = 0
+                            ChatBubble.SetOnCopied(nil)
                             onBack()
                         end,
                     },
@@ -284,6 +327,23 @@ function M.Create(chatName, chatIconBg, onBack)
                     children = {
                         inputField,
                     UI.Button {
+                        width = 40, height = 30,
+                        backgroundColor = { 230, 230, 230, 255 },
+                        hoverBackgroundColor = { 210, 210, 210, 255 },
+                        pressedBackgroundColor = { 190, 190, 190, 255 },
+                        borderRadius = 4,
+                        text = "粘贴",
+                        textColor = C.text,
+                        fontSize = 10,
+                        onClick = function(self)
+                            local clip = ui:GetClipboardText()
+                            if clip and clip ~= "" and inputField then
+                                local cur = inputField:GetValue() or ""
+                                inputField:SetValue(cur .. clip)
+                            end
+                        end,
+                    },
+                    UI.Button {
                         width = 50, height = 30,
                         backgroundColor = C.blue,
                         hoverBackgroundColor = { 38, 100, 220, 255 },
@@ -302,6 +362,8 @@ function M.Create(chatName, chatIconBg, onBack)
                 }
                 return inputBarPanel_
             end)(),
+            -- "已复制" toast 覆盖层（绝对定位）
+            copyToastLabel_,
         },
     }
 end

@@ -31,7 +31,20 @@ Colors.PRESETS = {
 ---@return table|nil RGBA 数组 { r, g, b, a }
 function Colors.Resolve(name)
     if not name or name == "" then return nil end
-    return Colors.PRESETS[name]
+    -- 优先查预设
+    local preset = Colors.PRESETS[name]
+    if preset then return preset end
+    -- 尝试解析 "R,G,B,A" 格式（如 "100,100,120,255"）
+    local r, g, b, a = name:match("^(%d+)%s*,%s*(%d+)%s*,%s*(%d+)%s*,%s*(%d+)$")
+    if r then
+        return { tonumber(r), tonumber(g), tonumber(b), tonumber(a) }
+    end
+    -- 尝试解析 "R,G,B" 格式（默认 alpha=255）
+    r, g, b = name:match("^(%d+)%s*,%s*(%d+)%s*,%s*(%d+)$")
+    if r then
+        return { tonumber(r), tonumber(g), tonumber(b), 255 }
+    end
+    return nil
 end
 
 -- ============================================================================

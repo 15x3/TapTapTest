@@ -461,4 +461,29 @@ function Data.SearchAll(keyword)
     return results
 end
 
+-- ============================================================================
+-- 热重载支持
+-- ============================================================================
+
+--- 本模块依赖的所有 CSV 文件路径
+Data.CSV_PATHS = {
+    "data/chats.csv",
+    "data/contacts.csv",
+    "data/chat_scenarios.csv",
+    "data/todos.csv",
+    "data/dings.csv",
+    "data/calendar.csv",
+}
+
+--- 清除所有内存缓存，下次访问时将重新从 CSV 读取
+function Data.Invalidate()
+    cachedChats_ = nil
+    cachedContacts_ = nil
+    cachedScenarios_ = nil
+    cachedTodos_ = nil
+    cachedDings_ = nil
+    cachedCalendar_ = nil
+    print("[DingtalkData] 缓存已清除，下次访问将重新加载 CSV")
+end
+
 return Data

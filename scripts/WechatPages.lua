@@ -25,6 +25,11 @@ local wxPagesUpdateSubscribed_ = false  -- 是否已订阅 Update 事件
 -- 自动填充：记录上一次输入框文本，用于检测文本变化（兼容中文输入法）
 local wxLastInputText_ = ""
 
+-- 复制 toast 相关
+local wxCopyToastLabel_ = nil   -- "已复制" toast Panel
+local wxCopyToastTimer_ = 0     -- toast 剩余显示时间
+local WX_COPY_TOAST_DURATION = 1.5
+
 --- 确保 WechatPages 模块的 Update 事件已订阅（只订阅一次）
 local function ensureWxPagesUpdate()
     if wxPagesUpdateSubscribed_ then return end
@@ -60,6 +65,14 @@ function HandleWechatPagesUpdate(eventType, eventData)
         local sv = wxPendingScroll_
         wxPendingScroll_ = nil
         sv:ScrollToBottom()
+    end
+
+    -- 复制 toast 计时
+    if wxCopyToastTimer_ > 0 then
+        wxCopyToastTimer_ = wxCopyToastTimer_ - dt
+        if wxCopyToastTimer_ <= 0 and wxCopyToastLabel_ then
+            wxCopyToastLabel_:SetVisible(false)
+        end
     end
 end
 
@@ -230,6 +243,14 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
     wxActiveManager_ = manager
     wxPendingScroll_ = scrollView
 
+    -- 注册复制成功回调 → 显示 toast
+    ChatBubble.SetOnCopied(function(text)
+        if wxCopyToastLabel_ then
+            wxCopyToastLabel_:SetVisible(true)
+            wxCopyToastTimer_ = WX_COPY_TOAST_DURATION
+        end
+    end)
+
     -- 输入状态
     local inputValue = ""
 
@@ -325,6 +346,25 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
     wxActiveInputField_ = textField
     wxActiveSendFunc_ = sendMessage
 
+    -- "已复制" toast 覆盖层
+    wxCopyToastLabel_ = UI.Panel {
+        position = "absolute",
+        top = "45%",
+        alignSelf = "center",
+        backgroundColor = { 0, 0, 0, 180 },
+        borderRadius = 8,
+        paddingHorizontal = 20,
+        paddingVertical = 10,
+        visible = false,
+        children = {
+            UI.Label {
+                text = "已复制",
+                fontSize = 13,
+                fontColor = { 255, 255, 255, 255 },
+            },
+        },
+    }
+
     return UI.Panel {
         width = "100%",
         height = "100%",
@@ -340,6 +380,9 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
                 wxActiveSendFunc_ = nil
                 wxInputBarPanel_ = nil
                 wxLastInputText_ = ""
+                wxCopyToastLabel_ = nil
+                wxCopyToastTimer_ = 0
+                ChatBubble.SetOnCopied(nil)
                 onBack()
             end),
             -- 消息列表
@@ -361,6 +404,26 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
                     borderTopColor = { 210, 210, 210, 255 },
                     children = {
                         textField,
+                        UI.Button {
+                            width = 36, height = 28,
+                            backgroundColor = { 230, 230, 230, 255 },
+                            hoverBackgroundColor = { 210, 210, 210, 255 },
+                            pressedBackgroundColor = { 190, 190, 190, 255 },
+                            borderRadius = 4,
+                            text = "粘贴",
+                            textColor = WX.text,
+                            fontSize = 9,
+                            onClick = function(self)
+                                local clip = ui:GetClipboardText()
+                                if clip and clip ~= "" and textField then
+                                    local cur = textField:GetValue() or ""
+                                    textField:SetValue(cur .. clip)
+                                    inputValue = cur .. clip
+                                    sendBtn:SetVisible(true)
+                                    plusBtn:SetVisible(false)
+                                end
+                            end,
+                        },
                         UI.Panel {
                             width = 28, height = 28,
                             justifyContent = "center",
@@ -375,6 +438,8 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
                 }
                 return wxInputBarPanel_
             end)(),
+            -- "已复制" toast 覆盖层（绝对定位）
+            wxCopyToastLabel_,
         },
     }
 end

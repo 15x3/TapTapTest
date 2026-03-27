@@ -63,6 +63,8 @@ function DeskWidget.Create(opts)
         width = self.width,
         height = self.height,
         backgroundColor = opts.backgroundColor or { 30, 30, 50, 200 },
+        backgroundImage = opts.backgroundImage,
+        backgroundFit = opts.backgroundFit,
         borderRadius = opts.borderRadius or 8,
         borderWidth = opts.borderWidth or 0,
         borderColor = opts.borderColor,

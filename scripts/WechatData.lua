@@ -323,6 +323,26 @@ function Data.UpdateChatPreview(chatName, lastMsg)
 end
 
 -- ============================================================================
+-- 热重载支持
+-- ============================================================================
+
+--- 本模块依赖的所有 CSV 文件路径
+Data.CSV_PATHS = {
+    "data/wechat_chats.csv",
+    "data/wechat_contacts.csv",
+    "data/wechat_scenarios.csv",
+}
+
+--- 清除所有内存缓存，下次访问时将重新从 CSV 读取
+function Data.Invalidate()
+    cachedChats_ = nil
+    cachedContacts_ = nil
+    cachedScenarios_ = nil
+    runtimeMessages_ = {}
+    print("[WechatData] 缓存已清除，下次访问将重新加载 CSV")
+end
+
+-- ============================================================================
 -- 未读消息总数
 -- ============================================================================
 
