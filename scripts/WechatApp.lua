@@ -245,6 +245,7 @@ function App._createChatItem(chat)
         gap = 10,
         borderBottomWidth = 1,
         borderBottomColor = { 240, 240, 240, 255 },
+        overflow = "hidden",
         onClick = function(self) navigateToChat(chat) end,
         children = {
             -- 头像
@@ -263,12 +264,14 @@ function App._createChatItem(chat)
                 flexDirection = "column",
                 justifyContent = "center",
                 gap = 4,
+                overflow = "hidden",
                 pointerEvents = "none",
                 children = {
                     UI.Panel {
                         flexDirection = "row",
                         justifyContent = "space-between",
                         alignItems = "center",
+                        overflow = "hidden",
                         children = {
                             UI.Label {
                                 text = chat.name,
@@ -281,6 +284,7 @@ function App._createChatItem(chat)
                                 text = chat.time,
                                 fontSize = 9,
                                 fontColor = WX.textSec,
+                                flexShrink = 0,
                             },
                         },
                     },
@@ -289,6 +293,7 @@ function App._createChatItem(chat)
                         fontSize = 10,
                         fontColor = WX.textSec,
                         maxLines = 1,
+                        overflow = "hidden",
                     },
                 },
             },
@@ -880,6 +885,21 @@ function App.Create(onGoHome, defaultChatName)
             wxTabBarContainer_,
         },
     }
+end
+
+-- ============================================================================
+-- 聊天列表实时刷新
+-- ============================================================================
+
+--- 检查并刷新聊天列表（由 main.lua HandleUpdate 调度）
+function App.RefreshChatListIfDirty()
+    if WechatData.ConsumeChatListDirty() then
+        -- 仅在聊天列表 Tab 可见时重建
+        if wxActiveTab_ == "chat" and wxContentContainer_ then
+            wxContentContainer_:ClearChildren()
+            wxContentContainer_:AddChild(App._createChatListPage())
+        end
+    end
 end
 
 return App

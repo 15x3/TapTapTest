@@ -10,6 +10,11 @@ local DingtalkData = require("DingtalkData")
 
 local App = {}
 
+--- 公告发布回调（由 main.lua 在关卡模式下注入）
+--- 调用方式: App.onPublishAnnouncement(text)
+---@type fun(text: string)|nil
+App.onPublishAnnouncement = nil
+
 -- 叮叮颜色
 local DT = {
     blue    = { 48, 118, 255, 255 },
@@ -329,6 +334,7 @@ function App._createChatItem(chat)
         gap = 10,
         borderBottomWidth = 1,
         borderBottomColor = { 245, 245, 245, 255 },
+        overflow = "hidden",
         onClick = function(self)
             navigateTo("chat", chat)
         end,
@@ -349,20 +355,23 @@ function App._createChatItem(chat)
                 flexDirection = "column",
                 justifyContent = "center",
                 gap = 4,
+                overflow = "hidden",
                 pointerEvents = "none",
                 children = {
                     UI.Panel {
                         flexDirection = "row",
                         justifyContent = "space-between",
                         alignItems = "center",
+                        overflow = "hidden",
                         children = {
                             UI.Panel {
                                 flexDirection = "row",
                                 alignItems = "center",
                                 flexShrink = 1,
+                                overflow = "hidden",
                                 children = nameChildren,
                             },
-                            UI.Label { text = chat.time, fontSize = 9, fontColor = DT.textSec },
+                            UI.Label { text = chat.time, fontSize = 9, fontColor = DT.textSec, flexShrink = 0 },
                         },
                     },
                     UI.Label {
@@ -370,6 +379,7 @@ function App._createChatItem(chat)
                         fontSize = 10,
                         fontColor = DT.textSec,
                         maxLines = 1,
+                        overflow = "hidden",
                     },
                 },
             },
@@ -487,16 +497,175 @@ function App.Create(onGoHome, defaultChatName)
         end
     end
 
+    -- 构建子元素列表
+    local mainChildren = {
+        dtContentContainer_,
+        dtTabBarContainer_,
+    }
+
+    -- 关卡模式：添加"发布公告"浮动按钮
+    if App.onPublishAnnouncement then
+        mainChildren[#mainChildren + 1] = UI.Button {
+            position = "absolute",
+            bottom = 112,
+            right = 10,
+            width = 44,
+            height = 44,
+            backgroundColor = { 255, 140, 0, 240 },
+            hoverBackgroundColor = { 255, 160, 40, 255 },
+            pressedBackgroundColor = { 220, 120, 0, 255 },
+            borderRadius = 22,
+            justifyContent = "center",
+            alignItems = "center",
+            zIndex = 800,
+            boxShadow = {
+                { x = 0, y = 3, blur = 10, spread = 1, color = { 0, 0, 0, 120 } },
+            },
+            onClick = function(self)
+                App._showAnnouncementModal()
+            end,
+            children = {
+                UI.Label {
+                    text = "公告",
+                    fontSize = 9,
+                    fontColor = { 255, 255, 255, 255 },
+                    pointerEvents = "none",
+                },
+            },
+        }
+    end
+
     return UI.Panel {
         width = "100%",
         height = "100%",
         backgroundColor = DT.bg,
         flexDirection = "column",
-        children = {
-            dtContentContainer_,
-            dtTabBarContainer_,
-        },
+        children = mainChildren,
     }
+end
+
+-- ============================================================================
+-- 公告发布 Modal
+-- ============================================================================
+
+--- 公告 Modal 引用
+---@type table|nil
+local announcementModal_ = nil
+
+--- 显示公告发布 Modal
+function App._showAnnouncementModal()
+    if announcementModal_ then return end  -- 防止重复打开
+
+    ---@type any
+    local announcementInput = nil
+
+    announcementModal_ = UI.Modal {
+        title = "发布班级公告",
+        size = "sm",
+        closeOnOverlay = true,
+        closeOnEscape = true,
+        showCloseButton = true,
+        onClose = function(self)
+            announcementModal_ = nil
+        end,
+    }
+
+    announcementInput = UI.TextField {
+        width = "100%",
+        height = 34,
+        fontSize = 12,
+        placeholder = "输入公告内容...",
+        onSubmit = function(self, value)
+            if value and value ~= "" then
+                if App.onPublishAnnouncement then
+                    App.onPublishAnnouncement(value)
+                end
+                if announcementModal_ then
+                    announcementModal_:Close()
+                    announcementModal_ = nil
+                end
+            end
+        end,
+    }
+
+    announcementModal_:AddContent(UI.Panel {
+        width = "100%",
+        flexDirection = "column",
+        gap = 10,
+        padding = 12,
+        children = {
+            UI.Label {
+                text = "请输入要发布给全班家长的通知内容：",
+                fontSize = 10,
+                fontColor = { 140, 140, 160, 255 },
+            },
+            announcementInput,
+        },
+    })
+
+    announcementModal_:SetFooter(UI.Panel {
+        width = "100%",
+        flexDirection = "row",
+        justifyContent = "flex-end",
+        gap = 8,
+        children = {
+            UI.Button {
+                width = 60, height = 30,
+                backgroundColor = { 60, 60, 80, 255 },
+                hoverBackgroundColor = { 80, 80, 100, 255 },
+                borderRadius = 6,
+                text = "取消",
+                textColor = { 200, 200, 220, 255 },
+                fontSize = 11,
+                onClick = function(self)
+                    if announcementModal_ then
+                        announcementModal_:Close()
+                        announcementModal_ = nil
+                    end
+                end,
+            },
+            UI.Button {
+                width = 60, height = 30,
+                backgroundColor = { 255, 140, 0, 240 },
+                hoverBackgroundColor = { 255, 160, 40, 255 },
+                borderRadius = 6,
+                text = "发布",
+                textColor = { 255, 255, 255, 255 },
+                fontSize = 11,
+                onClick = function(self)
+                    if announcementInput then
+                        local val = announcementInput:GetValue() or ""
+                        if val ~= "" then
+                            if App.onPublishAnnouncement then
+                                App.onPublishAnnouncement(val)
+                            end
+                        end
+                    end
+                    if announcementModal_ then
+                        announcementModal_:Close()
+                        announcementModal_ = nil
+                    end
+                end,
+            },
+        },
+    })
+
+    announcementModal_:Open()
+end
+
+-- ============================================================================
+-- 聊天列表实时刷新
+-- ============================================================================
+
+--- 检查并刷新聊天列表（由 main.lua HandleUpdate 调度）
+function App.RefreshChatListIfDirty()
+    if DingtalkData.ConsumeChatListDirty() then
+        -- 仅在消息 Tab 可见时重建
+        if dtActiveTab_ == "msg" and dtContentContainer_ then
+            dtContentContainer_:ClearChildren()
+            dtContentContainer_:AddChild(App._createMainContent())
+        end
+    end
 end
 
 return App

@@ -258,6 +258,10 @@ end
 ---@type table<string, table[]>
 local runtimeMessages_ = {}
 
+--- 消息监听器（chatName → callback(msg)）
+---@type table<string, fun(msg: table)>
+local messageListeners_ = {}
+
 --- 获取某个聊天的运行时消息
 ---@param chatName string
 ---@return table[]
@@ -269,15 +273,42 @@ end
 ---@param chatName string
 ---@param sender string
 ---@param text string
-function Data.AddMessage(chatName, sender, text)
+function Data.AddMessage(chatName, sender, text, extra)
     if not runtimeMessages_[chatName] then
         runtimeMessages_[chatName] = {}
     end
     local msgs = runtimeMessages_[chatName]
-    msgs[#msgs + 1] = {
+    local entry = {
         sender   = sender,
         text     = text,
     }
+    -- 合并额外字段（关卡系统可附加 chat, forwardTarget, chainId 等）
+    if extra then
+        for k, v in pairs(extra) do
+            entry[k] = v
+        end
+    end
+    msgs[#msgs + 1] = entry
+    -- 更新聊天列表预览
+    Data.UpdateChatPreview(chatName, sender .. ": " .. text)
+    -- 通知监听器
+    local listener = messageListeners_[chatName]
+    if listener then
+        listener(entry)
+    end
+end
+
+--- 注册消息监听器（聊天页面打开时调用）
+---@param chatName string
+---@param callback fun(msg: table)
+function Data.SetMessageListener(chatName, callback)
+    messageListeners_[chatName] = callback
+end
+
+--- 移除消息监听器（聊天页面关闭时调用）
+---@param chatName string
+function Data.RemoveMessageListener(chatName)
+    messageListeners_[chatName] = nil
 end
 
 --- 确保聊天列表中存在指定聊天，不存在则创建
@@ -308,6 +339,9 @@ function Data.EnsureChat(contactName, iconBg, iconText)
     return newChat
 end
 
+--- 聊天列表脏标记（UpdateChatPreview 时置 true，UI 消费后置 false）
+local chatListDirty_ = false
+
 --- 更新聊天列表中某个聊天的最后一条消息摘要
 ---@param chatName string
 ---@param lastMsg string
@@ -317,9 +351,20 @@ function Data.UpdateChatPreview(chatName, lastMsg)
         if chat.name == chatName then
             chat.msg = lastMsg
             chat.time = "刚刚"
+            chatListDirty_ = true
             return
         end
     end
+end
+
+--- 检查并消费聊天列表脏标记
+---@return boolean 是否有更新
+function Data.ConsumeChatListDirty()
+    if chatListDirty_ then
+        chatListDirty_ = false
+        return true
+    end
+    return false
 end
 
 -- ============================================================================
@@ -339,6 +384,7 @@ function Data.Invalidate()
     cachedContacts_ = nil
     cachedScenarios_ = nil
     runtimeMessages_ = {}
+    messageListeners_ = {}
     print("[WechatData] 缓存已清除，下次访问将重新加载 CSV")
 end
 

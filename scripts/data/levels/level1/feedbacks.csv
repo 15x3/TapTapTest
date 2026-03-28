@@ -1,0 +1,13 @@
+trigger,source_chat,delay,app,chat,sender,content
+on_correct:forward:年级工作群,年级工作群,8,wechat,七(3)班家长群,李妈妈,收到老师的通知，谢谢~
+on_correct:forward:年级工作群,年级工作群,13,wechat,七(3)班家长群,张家长,收到
+on_correct:forward:年级工作群,年级工作群,18,wechat,七(3)班家长群,赵妈妈,好的老师，知道了
+on_correct:forward:年级工作群,年级工作群,25,wechat,七(3)班家长群,王爸爸,收到了，谢谢
+on_timeout:forward:年级工作群,年级工作群,120,dingtalk,年级工作群,刘主任,@你 通知转发家长了吗？请尽快
+on_wrong_target:forward:年级工作群,年级工作群,5,wechat,七(3)班同学群,小红,？老师这是发给我们看的吗
+on_correct:reply:王爸爸,王爸爸,5,wechat,王爸爸,王爸爸,好的老师，太感谢了，麻烦您费心了
+on_timeout:reply:王爸爸,王爸爸,90,wechat,王爸爸,王爸爸,老师？不知道您看到消息了吗
+on_correct:reply:张主任,张主任,5,dingtalk,张主任,张主任,好的辛苦了~
+on_timeout:reply:张主任,张主任,90,dingtalk,张主任,张主任,老师？体检表的事方便回复一下吗
+on_correct:reply:小明（班长）,小明（班长）,3,wechat,小明（班长）,小明,好的老师，我去跟他们说！
+on_timeout:reply:小明（班长）,小明（班长）,90,wechat,小明（班长）,小明,老师？他们又开始推了...

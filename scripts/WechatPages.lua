@@ -7,6 +7,8 @@ local UI = require("urhox-libs/UI")
 local WechatData = require("WechatData")
 local ChatEventManager = require("ChatEventManager")
 local ChatBubble = require("Utils.ChatBubble")
+local ReplyManager = require("Level.ReplyManager")
+local LevelManager = require("Level.LevelManager")
 local Colors = require("Utils.Colors")
 local WechatCommon = require("WechatPagesCommon")
 
@@ -25,16 +27,49 @@ local wxPagesUpdateSubscribed_ = false  -- 是否已订阅 Update 事件
 -- 自动填充：记录上一次输入框文本，用于检测文本变化（兼容中文输入法）
 local wxLastInputText_ = ""
 
+-- 关卡回复提示（replyHint）自动填充状态
+local wxActiveChatName_ = ""
+local wxReplyHintText_ = nil
+local wxReplyHintIndex_ = 0
+local wxReplyHintTotal_ = 0
+
+--- UTF-8 字符串长度
+local function utf8Len(s)
+    if not s or s == "" then return 0 end
+    local len = 0
+    for _ in s:gmatch("[%z\1-\127\194-\253][\128-\191]*") do
+        len = len + 1
+    end
+    return len
+end
+
+--- UTF-8 子串（取前 n 个字符）
+local function utf8Sub(s, n)
+    if not s or s == "" or n <= 0 then return "" end
+    local count = 0
+    local pos = 1
+    while pos <= #s and count < n do
+        local byte = s:byte(pos)
+        if byte < 128 then pos = pos + 1
+        elseif byte < 224 then pos = pos + 2
+        elseif byte < 240 then pos = pos + 3
+        else pos = pos + 4
+        end
+        count = count + 1
+    end
+    return s:sub(1, pos - 1)
+end
+
 -- 复制 toast 相关
 local wxCopyToastLabel_ = nil   -- "已复制" toast Panel
 local wxCopyToastTimer_ = 0     -- toast 剩余显示时间
 local WX_COPY_TOAST_DURATION = 1.5
 
---- 确保 WechatPages 模块的 Update 事件已订阅（只订阅一次）
+--- 确保 WechatPages 模块的 Update 标记已设置
 local function ensureWxPagesUpdate()
-    if wxPagesUpdateSubscribed_ then return end
+    -- 不再独立订阅 Update 事件（会覆盖 main.lua 的 HandleUpdate）
+    -- 改由 main.lua 的 HandleUpdate 统一调度 HandleWechatPagesUpdate
     wxPagesUpdateSubscribed_ = true
-    SubscribeToEvent("Update", "HandleWechatPagesUpdate")
 end
 
 --- Update 事件处理：驱动事件管理器 + 延迟滚动 + 随意敲打键盘
@@ -57,6 +92,19 @@ function HandleWechatPagesUpdate(eventType, eventData)
                     wxLastInputText_ = currentText
                 end
             end
+        end
+    end
+
+    -- 关卡回复提示自动填充（与 ChatEventManager 的 S4U 共用"随意敲打"范式）
+    if wxReplyHintText_ and wxActiveInputField_
+       and not (wxActiveManager_ and wxActiveManager_:IsWaitingInput()) then
+        local currentText = wxActiveInputField_:GetValue() or ""
+        if currentText ~= wxLastInputText_ and currentText ~= "" then
+            local step = math.max(1, math.random(1, 2))
+            wxReplyHintIndex_ = math.min(wxReplyHintIndex_ + step, wxReplyHintTotal_)
+            local partial = utf8Sub(wxReplyHintText_, wxReplyHintIndex_)
+            wxActiveInputField_:SetValue(partial)
+            wxLastInputText_ = partial
         end
     end
 
@@ -147,6 +195,19 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
     wxActiveSendFunc_ = nil
     wxInputBarPanel_ = nil
     wxLastInputText_ = ""
+    wxActiveChatName_ = chatName
+
+    -- 初始化关卡回复提示自动填充
+    local hint = ReplyManager.GetReplyHint("wechat", chatName)
+    if hint then
+        wxReplyHintText_ = hint
+        wxReplyHintIndex_ = 0
+        wxReplyHintTotal_ = utf8Len(hint)
+    else
+        wxReplyHintText_ = nil
+        wxReplyHintIndex_ = 0
+        wxReplyHintTotal_ = 0
+    end
 
     -- 消息列表容器（用于动态追加气泡）
     local msgListPanel = UI.Panel {
@@ -184,63 +245,73 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
 
     --- 添加一条消息气泡到列表
     local function addBubble(msg)
-        msgListPanel:AddChild(ChatBubble.Create(msg, chatIconBg, ChatBubble.WECHAT))
+        if msg.msgType == "system" then
+            msgListPanel:AddChild(ChatBubble.CreateSystemNotice(msg.text))
+        else
+            msgListPanel:AddChild(ChatBubble.Create(msg, chatIconBg, ChatBubble.WECHAT))
+        end
         wxPendingScroll_ = scrollView
     end
 
-    -- 加载场景事件并创建管理器
-    local scenarioEvents = WechatData.GetChatScenario(chatName)
+    -- 加载关卡运行时消息（已投递的消息）
+    local existingMsgs = WechatData.GetRuntimeMessages(chatName)
+    for _, msg in ipairs(existingMsgs) do
+        addBubble(msg)
+    end
 
-    local manager = ChatEventManager.Create(scenarioEvents, {
-        onMessage = function(msg)
-            addBubble(msg)
-        end,
+    -- 注册消息监听器（新消息到达时自动显示）
+    WechatData.SetMessageListener(chatName, function(msg)
+        addBubble(msg)
+    end)
 
-        onTyping = function(sender)
-            if wxTypingIndicator_ then
-                wxTypingLabel_:SetText(sender .. " 正在输入...")
-                wxTypingIndicator_:SetHeight(20)
-            end
-        end,
+    -- 关卡模式下不加载场景事件（关卡消息完全由 LevelMessageScheduler + messages.csv 驱动）
+    if not LevelManager.IsPlaying() then
+        local scenarioEvents = WechatData.GetChatScenario(chatName)
 
-        onTypingEnd = function()
-            if wxTypingIndicator_ then
-                wxTypingLabel_:SetText("")
-                wxTypingIndicator_:SetHeight(0)
-            end
-        end,
+        local manager = ChatEventManager.Create(scenarioEvents, {
+            onMessage = function(msg)
+                addBubble(msg)
+            end,
 
-        onAutoFill = function(partialText, isComplete)
-            -- onAutoFill 现在主要由 OnTextChanged 内部驱动，
-            -- 此回调保留用于外部通知（如 UI 状态更新）
-        end,
-
-        onBranchHint = function(hints, timeout)
-            -- 分支等待输入时的提示
-        end,
-
-        onBranchMatched = function(nextId, matchType)
-            -- 分支匹配完成后的回调
-        end,
-
-        onInputStateChanged = function(isManual)
-            -- 输入状态变化：true=手动输入, false=自动输入, nil=非输入状态
-            -- TextField 不支持动态改背景色，改用外层 Panel 的背景色来提示
-            if wxInputBarPanel_ then
-                if isManual == true then
-                    wxInputBarPanel_:SetStyle({ backgroundColor = INPUT_BG_MANUAL })
-                else
-                    wxInputBarPanel_:SetStyle({ backgroundColor = INPUT_BG_AUTO })
+            onTyping = function(sender)
+                if wxTypingIndicator_ then
+                    wxTypingLabel_:SetText(sender .. " 正在输入...")
+                    wxTypingIndicator_:SetHeight(20)
                 end
-            end
-        end,
+            end,
 
-        onDone = function()
-            -- 所有事件播放完毕
-        end,
-    })
+            onTypingEnd = function()
+                if wxTypingIndicator_ then
+                    wxTypingLabel_:SetText("")
+                    wxTypingIndicator_:SetHeight(0)
+                end
+            end,
 
-    wxActiveManager_ = manager
+            onAutoFill = function(partialText, isComplete)
+            end,
+
+            onBranchHint = function(hints, timeout)
+            end,
+
+            onBranchMatched = function(nextId, matchType)
+            end,
+
+            onInputStateChanged = function(isManual)
+                if wxInputBarPanel_ then
+                    if isManual == true then
+                        wxInputBarPanel_:SetStyle({ backgroundColor = INPUT_BG_MANUAL })
+                    else
+                        wxInputBarPanel_:SetStyle({ backgroundColor = INPUT_BG_AUTO })
+                    end
+                end
+            end,
+
+            onDone = function()
+            end,
+        })
+
+        wxActiveManager_ = manager
+    end
     wxPendingScroll_ = scrollView
 
     -- 注册复制成功回调 → 显示 toast
@@ -260,12 +331,8 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
         local trimmed = text:match("^%s*(.-)%s*$")
         if trimmed == "" then return end
 
-        -- 更新数据层
-        WechatData.UpdateChatPreview(chatName, trimmed)
-
-        -- 创建"我"发的消息气泡
-        local newMsg = { sender = "我", text = trimmed }
-        addBubble(newMsg)
+        -- 保存到数据层（AddMessage 会自动触发监听器 → addBubble，同时更新预览）
+        WechatData.AddMessage(chatName, "我", trimmed)
 
         -- 清空输入框状态
         inputValue = ""
@@ -277,6 +344,19 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
         -- 通知事件管理器：用户发了消息
         if wxActiveManager_ and wxActiveManager_:IsWaitingInput() then
             wxActiveManager_:OnUserMessage(trimmed)
+        end
+
+        -- 关卡模式：通知 ReplyManager 玩家回复了消息
+        ReplyManager.OnUserReply("wechat", chatName, trimmed)
+
+        -- 清除已消费的回复提示，检查是否有下一条待回复
+        wxReplyHintText_ = nil
+        wxReplyHintIndex_ = 0
+        wxReplyHintTotal_ = 0
+        local nextHint = ReplyManager.GetReplyHint("wechat", chatName)
+        if nextHint then
+            wxReplyHintText_ = nextHint
+            wxReplyHintTotal_ = utf8Len(nextHint)
         end
     end
 
@@ -313,12 +393,15 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
         end,
     }
 
-    -- 输入框
+    -- 输入框：如果有回复提示，用提示文本做 placeholder
+    local wxPlaceholderText = wxReplyHintText_
+        and "随意输入以回复..."
+        or "输入消息..."
     local textField = UI.TextField {
         flexGrow = 1, flexBasis = 0,
         height = 36,
         fontSize = 13,
-        placeholder = "输入消息...",
+        placeholder = wxPlaceholderText,
         value = "",
         borderRadius = 6,
         backgroundColor = WX.white,

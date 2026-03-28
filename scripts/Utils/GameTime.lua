@@ -176,4 +176,13 @@ function GameTime.ConsumeDirty()
     return false
 end
 
+-- ============================================================================
+-- 重置（关卡系统使用）
+-- ============================================================================
+
+--- 重置初始化状态，允许重新调用 Init()
+function GameTime.ResetInit()
+    inited_ = false
+end
+
 return GameTime

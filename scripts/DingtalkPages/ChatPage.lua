@@ -7,6 +7,8 @@ local UI = require("urhox-libs/UI")
 local DingtalkData = require("DingtalkData")
 local ChatEventManager = require("ChatEventManager")
 local ChatBubble = require("Utils.ChatBubble")
+local ReplyManager = require("Level.ReplyManager")
+local LevelManager = require("Level.LevelManager")
 local Common = require("DingtalkPagesCommon")
 local C = Common.C
 
@@ -30,15 +32,48 @@ local updateSubscribed_ = false
 -- 自动填充：记录上一次输入框文本，用于检测文本变化（兼容中文输入法）
 local lastInputText_ = ""
 
+-- 关卡回复提示（replyHint）自动填充状态
+local activeChatName_ = ""    -- 当前聊天名
+local replyHintText_ = nil    -- 当前提示文本
+local replyHintIndex_ = 0     -- 已填充字符数
+local replyHintTotal_ = 0     -- 总字符数
+
+--- UTF-8 字符串长度
+local function utf8Len(s)
+    if not s or s == "" then return 0 end
+    local len = 0
+    for _ in s:gmatch("[%z\1-\127\194-\253][\128-\191]*") do
+        len = len + 1
+    end
+    return len
+end
+
+--- UTF-8 子串（取前 n 个字符）
+local function utf8Sub(s, n)
+    if not s or s == "" or n <= 0 then return "" end
+    local count = 0
+    local pos = 1
+    while pos <= #s and count < n do
+        local byte = s:byte(pos)
+        if byte < 128 then pos = pos + 1
+        elseif byte < 224 then pos = pos + 2
+        elseif byte < 240 then pos = pos + 3
+        else pos = pos + 4
+        end
+        count = count + 1
+    end
+    return s:sub(1, pos - 1)
+end
+
 -- 复制 toast 相关
 local copyToastLabel_ = nil   -- "已复制" toast Label
 local copyToastTimer_ = 0     -- toast 剩余显示时间
 local COPY_TOAST_DURATION = 1.5
 
 local function ensureUpdate()
-    if updateSubscribed_ then return end
+    -- 不再独立订阅 Update 事件（会覆盖 main.lua 的 HandleUpdate）
+    -- 改由 main.lua 的 HandleUpdate 统一调度 HandleDingtalkChatPageUpdate
     updateSubscribed_ = true
-    SubscribeToEvent("Update", "HandleDingtalkChatPageUpdate")
 end
 
 --- Update event handler
@@ -61,6 +96,20 @@ function HandleDingtalkChatPageUpdate(eventType, eventData)
             end
         end
     end
+    -- 关卡回复提示自动填充（与 ChatEventManager 的 S4U 共用"随意敲打"范式）
+    if replyHintText_ and activeInputField_
+       and not (activeManager_ and activeManager_:IsWaitingInput()) then
+        local currentText = activeInputField_:GetValue() or ""
+        if currentText ~= lastInputText_ and currentText ~= "" then
+            -- 玩家有新输入 → 推进自动填充
+            local step = math.max(1, math.random(1, 2))
+            replyHintIndex_ = math.min(replyHintIndex_ + step, replyHintTotal_)
+            local partial = utf8Sub(replyHintText_, replyHintIndex_)
+            activeInputField_:SetValue(partial)
+            lastInputText_ = partial
+        end
+    end
+
     if pendingScroll_ then
         local sv = pendingScroll_
         pendingScroll_ = nil
@@ -91,6 +140,19 @@ function M.Create(chatName, chatIconBg, onBack)
     activeInputField_ = nil
     activeSendFunc_ = nil
     lastInputText_ = ""
+    activeChatName_ = chatName
+
+    -- 初始化关卡回复提示自动填充
+    local hint = ReplyManager.GetReplyHint("dingtalk", chatName)
+    if hint then
+        replyHintText_ = hint
+        replyHintIndex_ = 0
+        replyHintTotal_ = utf8Len(hint)
+    else
+        replyHintText_ = nil
+        replyHintIndex_ = 0
+        replyHintTotal_ = 0
+    end
 
     -- 消息列表容器（用于动态添加气泡）
     local msgListContainer = UI.Panel {
@@ -130,63 +192,73 @@ function M.Create(chatName, chatIconBg, onBack)
 
     --- 添加一条消息气泡到列表，并请求延迟滚动
     local function addBubble(msg)
-        msgListContainer:AddChild(ChatBubble.Create(msg, chatIconBg, ChatBubble.DINGTALK))
+        if msg.msgType == "system" then
+            msgListContainer:AddChild(ChatBubble.CreateSystemNotice(msg.text))
+        else
+            msgListContainer:AddChild(ChatBubble.Create(msg, chatIconBg, ChatBubble.DINGTALK))
+        end
         pendingScroll_ = scrollView
     end
 
-    -- 加载场景事件并创建管理器
-    local scenarioEvents = DingtalkData.GetChatScenario(chatName)
+    -- 加载关卡运行时消息（已投递的消息）
+    local existingMsgs = DingtalkData.GetRuntimeMessages(chatName)
+    for _, msg in ipairs(existingMsgs) do
+        addBubble(msg)
+    end
 
-    local manager = ChatEventManager.Create(scenarioEvents, {
-        onMessage = function(msg)
-            addBubble(msg)
-        end,
+    -- 注册消息监听器（新消息到达时自动显示）
+    DingtalkData.SetMessageListener(chatName, function(msg)
+        addBubble(msg)
+    end)
 
-        onTyping = function(sender)
-            if typingIndicator_ then
-                typingLabel:SetText(sender .. " 正在输入...")
-                typingIndicator_:SetHeight(20)
-            end
-        end,
+    -- 关卡模式下不加载场景事件（关卡消息完全由 LevelMessageScheduler + messages.csv 驱动）
+    if not LevelManager.IsPlaying() then
+        local scenarioEvents = DingtalkData.GetChatScenario(chatName)
 
-        onTypingEnd = function()
-            if typingIndicator_ then
-                typingLabel:SetText("")
-                typingIndicator_:SetHeight(0)
-            end
-        end,
+        local manager = ChatEventManager.Create(scenarioEvents, {
+            onMessage = function(msg)
+                addBubble(msg)
+            end,
 
-        onAutoFill = function(partialText, isComplete)
-            -- onAutoFill 现在主要由 OnTextChanged 内部驱动，
-            -- 此回调保留用于外部通知（如 UI 状态更新）
-        end,
-
-        onBranchHint = function(hints, timeout)
-            -- 分支等待输入时的提示（可选：显示关键词提示给玩家）
-        end,
-
-        onBranchMatched = function(nextId, matchType)
-            -- 分支匹配完成后的回调（可选：显示匹配方式提示）
-        end,
-
-        onInputStateChanged = function(isManual)
-            -- 输入状态变化：true=手动输入, false=自动输入, nil=非输入状态
-            -- TextField 不支持动态改背景色，改用外层 Panel 的背景色来提示
-            if inputBarPanel_ then
-                if isManual == true then
-                    inputBarPanel_:SetStyle({ backgroundColor = INPUT_BG_MANUAL })
-                else
-                    inputBarPanel_:SetStyle({ backgroundColor = INPUT_BG_AUTO })
+            onTyping = function(sender)
+                if typingIndicator_ then
+                    typingLabel:SetText(sender .. " 正在输入...")
+                    typingIndicator_:SetHeight(20)
                 end
-            end
-        end,
+            end,
 
-        onDone = function()
-            -- 所有事件播放完毕，不做特殊处理
-        end,
-    })
+            onTypingEnd = function()
+                if typingIndicator_ then
+                    typingLabel:SetText("")
+                    typingIndicator_:SetHeight(0)
+                end
+            end,
 
-    activeManager_ = manager
+            onAutoFill = function(partialText, isComplete)
+            end,
+
+            onBranchHint = function(hints, timeout)
+            end,
+
+            onBranchMatched = function(nextId, matchType)
+            end,
+
+            onInputStateChanged = function(isManual)
+                if inputBarPanel_ then
+                    if isManual == true then
+                        inputBarPanel_:SetStyle({ backgroundColor = INPUT_BG_MANUAL })
+                    else
+                        inputBarPanel_:SetStyle({ backgroundColor = INPUT_BG_AUTO })
+                    end
+                end
+            end,
+
+            onDone = function()
+            end,
+        })
+
+        activeManager_ = manager
+    end
 
     -- 注册复制成功回调 → 显示 toast
     ChatBubble.SetOnCopied(function(text)
@@ -205,9 +277,8 @@ function M.Create(chatName, chatIconBg, onBack)
         local trimmed = text:match("^%s*(.-)%s*$")
         if trimmed == "" then return end
 
-        -- 创建"我"发的消息气泡
-        local newMsg = { sender = "我", text = trimmed }
-        addBubble(newMsg)
+        -- 保存到数据层（AddMessage 会自动触发监听器 → addBubble）
+        DingtalkData.AddMessage(chatName, "我", trimmed)
 
         -- 清空输入框
         if inputField then
@@ -220,14 +291,30 @@ function M.Create(chatName, chatIconBg, onBack)
         if activeManager_ and activeManager_:IsWaitingInput() then
             activeManager_:OnUserMessage(trimmed)
         end
+
+        -- 关卡模式：通知 ReplyManager 玩家回复了消息
+        ReplyManager.OnUserReply("dingtalk", chatName, trimmed)
+
+        -- 清除已消费的回复提示，检查是否有下一条待回复
+        replyHintText_ = nil
+        replyHintIndex_ = 0
+        replyHintTotal_ = 0
+        local nextHint = ReplyManager.GetReplyHint("dingtalk", chatName)
+        if nextHint then
+            replyHintText_ = nextHint
+            replyHintTotal_ = utf8Len(nextHint)
+        end
     end
 
-    -- 创建输入框
+    -- 创建输入框：如果有回复提示，用提示文本做 placeholder
+    local placeholderText = replyHintText_
+        and "随意输入以回复..."
+        or "输入消息..."
     inputField = UI.TextField {
         flexGrow = 1,
         height = 34,
         fontSize = 12,
-        placeholder = "输入消息...",
+        placeholder = placeholderText,
         onSubmit = function(self, value)
             sendMessage(value)
         end,

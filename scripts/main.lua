@@ -17,6 +17,19 @@ local CSVParser = require("Utils.CSVParser")
 local WechatData = require("WechatData")
 local DingtalkData = require("DingtalkData")
 
+-- 关卡系统模块
+local LevelTimer = require("Level.LevelTimer")
+local LevelConfig = require("Level.LevelConfig")
+local LevelMessageScheduler = require("Level.LevelMessageScheduler")
+local LevelManager = require("Level.LevelManager")
+local ForwardManager = require("Level.ForwardManager")
+local AnnouncementManager = require("Level.AnnouncementManager")
+local ReplyManager = require("Level.ReplyManager")
+local FeedbackManager = require("Level.FeedbackManager")
+local SettlementReport = require("Level.SettlementReport")
+local ContextMenu = require("UI.ContextMenu")
+local ChatBubble = require("Utils.ChatBubble")
+
 -- ============================================================================
 -- 全局变量
 -- ============================================================================
@@ -53,6 +66,10 @@ local NOTIF_DURATION = 4.0     -- 通知显示时长（秒）
 -- CSV 热重载
 local CSV_CHECK_INTERVAL = 2.0 -- 每 2 秒检查一次 CSV 变更
 local csvCheckTimer_ = 0       -- 检查计时器
+
+-- 关卡模式
+local levelMode_ = true        -- true=关卡模式, false=旧叙事模式
+local countdownLabel_ = nil     -- 状态栏倒计时 Label（关卡模式专用）
 
 -- 手机配置
 local PHONE = {
@@ -127,6 +144,12 @@ function Start()
     InitUI()
     CreateUI()
     SubscribeToEvents()
+
+    -- 关卡模式：初始化 LevelManager 并启动第一关
+    if levelMode_ then
+        InitLevelManager()
+        LevelManager.StartLevel("level1")
+    end
 
     print("=== Pixel Phone Simulator Started ===")
 end
@@ -587,6 +610,17 @@ function CreateStatusBar()
                 alignItems = "center",
                 gap = 8,
                 children = {
+                    -- 关卡倒计时（仅关卡模式显示）
+                    (function()
+                        countdownLabel_ = UI.Label {
+                            id = "countdownLabel",
+                            text = "",
+                            fontSize = 10,
+                            fontColor = { 255, 100, 100, 255 },
+                            display = levelMode_ and "flex" or "none",
+                        }
+                        return countdownLabel_
+                    end)(),
                     (function()
                         timeLabel_ = UI.Label {
                             id = "timeLabel",
@@ -809,6 +843,478 @@ function GetCurrentDate()
 end
 
 -- ============================================================================
+-- 关卡系统
+-- ============================================================================
+
+--- 初始化关卡管理器（配置回调）
+function InitLevelManager()
+    LevelManager.Init({
+        --- 显示简报画面：替换 screenContainer 内容
+        onShowBriefing = function(panel)
+            if not screenContainer_ then return end
+            currentApp_ = nil
+            screenContainer_:ClearChildren()
+            screenContainer_:AddChild(panel)
+
+            -- 隐藏倒计时
+            if countdownLabel_ then
+                countdownLabel_:SetStyle({ display = "none" })
+            end
+
+            print("[main] 显示简报画面")
+        end,
+
+        --- 简报结束，恢复手机主界面
+        onStartPlaying = function()
+            if not screenContainer_ then return end
+            screenContainer_:ClearChildren()
+            screenContainer_:AddChild(CreateHomeContent())
+
+            -- 显示倒计时
+            if countdownLabel_ then
+                countdownLabel_:SetStyle({ display = "flex" })
+                countdownLabel_:SetText(LevelTimer.GetFormattedRemaining())
+            end
+
+            -- 同步状态栏时间
+            GameTime.ConsumeDirty()
+            if timeLabel_ then
+                timeLabel_:SetText(GetCurrentTime())
+            end
+            lastMinute_ = GameTime.Now().min
+
+            -- 初始化转发管理器
+            local ld = LevelManager.GetLevelData()
+            if ld then
+                ForwardManager.Init(ld, {
+                    onDeliverMessage = function(app, chatName, sender, text)
+                        if app == "dingtalk" then
+                            DingtalkData.AddMessage(chatName, sender, text)
+                        elseif app == "wechat" then
+                            WechatData.AddMessage(chatName, sender, text)
+                        end
+                    end,
+                    onForwardSuccess = function(msg, targetChat)
+                        local elapsed = LevelTimer.GetElapsed()
+                        FeedbackManager.OnCorrectForward(msg.chat, msg.chainId, elapsed)
+                        print(string.format("[main] 转发成功: %s (chain:%s) → %s", msg.chat, msg.chainId or "?", targetChat.name))
+                    end,
+                    onForwardWrongTarget = function(msg, targetChat)
+                        local elapsed = LevelTimer.GetElapsed()
+                        FeedbackManager.OnWrongTargetForward(msg.chat, msg.chainId, elapsed)
+                        print(string.format("[main] 转发错误目标: %s (chain:%s) → %s", msg.chat, msg.chainId or "?", targetChat.name))
+                    end,
+                })
+
+                -- 初始化公告管理器
+                AnnouncementManager.Init(ld.announcements, {
+                    onCheckResult = function(result)
+                        print(string.format("[main] 公告检查: %s | 匹配 %d/%d",
+                            result.passed and "通过" or "未通过",
+                            result.matchedCount, result.totalCount))
+                    end,
+                })
+
+                -- 初始化回复管理器
+                ReplyManager.Init({
+                    onReplyResult = function(entry)
+                        if entry.result == "matched" then
+                            local elapsed = LevelTimer.GetElapsed()
+                            FeedbackManager.OnCorrectReply(entry.chat, elapsed)
+                        end
+                        print(string.format("[main] 回复结果: %s/%s → %s",
+                            entry.app, entry.chat, entry.result))
+                    end,
+                    onReplyTimeout = function(entry)
+                        print(string.format("[main] 回复超时: %s/%s", entry.app, entry.chat))
+                    end,
+                })
+
+                -- 初始化反馈管理器
+                FeedbackManager.Init(ld.feedbacks, {
+                    onDeliverFeedback = function(app, chat, sender, content)
+                        if app == "dingtalk" then
+                            DingtalkData.AddMessage(chat, sender, content)
+                        elseif app == "wechat" then
+                            WechatData.AddMessage(chat, sender, content)
+                        end
+                        print(string.format("[main] 反馈消息: %s/%s - %s: %s",
+                            app, chat, sender, string.sub(content, 1, 40)))
+                    end,
+                })
+
+                -- 设置 DingtalkApp 公告发布回调
+                DingtalkApp.onPublishAnnouncement = function(text)
+                    local elapsed = LevelTimer.GetElapsed()
+                    AnnouncementManager.Publish(text, elapsed)
+                    -- 将公告内容投递到所有家长群（作为班主任发的消息）
+                    for _, chat in ipairs(ld.chats) do
+                        if chat.isTarget then
+                            if chat.app == "dingtalk" then
+                                DingtalkData.AddMessage(chat.name, "班主任", "[公告] " .. text)
+                            elseif chat.app == "wechat" then
+                                WechatData.AddMessage(chat.name, "班主任", "[公告] " .. text)
+                            end
+                        end
+                    end
+                    print(string.format("[main] 公告已发布: %s", string.sub(text, 1, 40)))
+                end
+            end
+
+            -- 设置 ContextMenu 的挂载容器
+            ContextMenu.SetMountParent(phoneFrame_)
+
+            -- 注册 ChatBubble 上下文菜单回调
+            ChatBubble.SetOnContextMenu(function(msg, x, y)
+                ContextMenu.Show({
+                    {
+                        label = "转发",
+                        onClick = function()
+                            ShowForwardTargetSelector(msg)
+                        end,
+                    },
+                    { type = "divider" },
+                    {
+                        label = "复制",
+                        onClick = function()
+                            if msg.text and msg.text ~= "" then
+                                ui:SetClipboardText(msg.text)
+                                if ChatBubble._onCopied then
+                                    ChatBubble._onCopied(msg.text)
+                                end
+                            end
+                        end,
+                    },
+                }, x, y)
+            end)
+
+            print("[main] 进入游戏状态，手机界面已恢复")
+        end,
+
+        --- 注入关卡聊天到 Data 层
+        onInjectChats = function(chats)
+            for _, chat in ipairs(chats) do
+                if chat.app == "dingtalk" then
+                    DingtalkData.EnsureChat(chat.name, chat.iconBg, chat.iconText)
+                elseif chat.app == "wechat" then
+                    WechatData.EnsureChat(chat.name, chat.iconBg, chat.iconText)
+                end
+            end
+        end,
+
+        --- 投放消息到对应 app/chat
+        onDeliverMessage = function(msg)
+            -- 关卡元数据（附加到 Data 层消息，供转发等操作使用）
+            local extra = {
+                chat          = msg.chat,
+                app           = msg.app,
+                forwardTarget = msg.forwardTarget,
+                chainId       = msg.chainId,
+                chainName     = msg.chainName,
+                priority      = msg.priority,
+                msgType       = msg.type,
+            }
+            -- 系统消息：投递到聊天内以居中灰色提示样式显示，不触发后续转发/回复逻辑
+            if msg.type == "system" then
+                if msg.app == "dingtalk" then
+                    DingtalkData.AddMessage(msg.chat, msg.sender or "", msg.content, extra)
+                elseif msg.app == "wechat" then
+                    WechatData.AddMessage(msg.chat, msg.sender or "", msg.content, extra)
+                end
+                print(string.format("[关卡系统] 系统提示: %s/%s - %s", msg.app, msg.chat, msg.content))
+                return
+            end
+            if msg.app == "dingtalk" then
+                DingtalkData.AddMessage(msg.chat, msg.sender, msg.content, extra)
+            elseif msg.app == "wechat" then
+                WechatData.AddMessage(msg.chat, msg.sender, msg.content, extra)
+            end
+            -- 注册 wait_reply 消息到 ReplyManager
+            local elapsed = LevelTimer.GetElapsed()
+            if msg.type == "wait_reply" then
+                ReplyManager.OnWaitReplyDelivered(msg, elapsed)
+            end
+            -- 注册反馈超时监控
+            FeedbackManager.OnMessageDelivered(msg, elapsed)
+
+            print(string.format("[关卡系统] 投放消息: %s/%s - %s: %s",
+                msg.app, msg.chat, msg.sender, string.sub(msg.content, 1, 40)))
+        end,
+
+        --- 触发通知横幅
+        onNotification = function(msg)
+            notifQueue_[#notifQueue_ + 1] = {
+                app = msg.app,
+                chatName = msg.chat,
+            }
+        end,
+
+        --- 显示结算画面
+        onShowSettlement = function(panel)
+            if not screenContainer_ then return end
+            currentApp_ = nil
+            screenContainer_:ClearChildren()
+            screenContainer_:AddChild(panel)
+
+            -- 隐藏倒计时
+            if countdownLabel_ then
+                countdownLabel_:SetStyle({ display = "none" })
+            end
+
+            -- 清理上下文菜单
+            ContextMenu.Close()
+            ChatBubble.SetOnContextMenu(nil)
+
+            -- 清理公告、回复、反馈管理器
+            DingtalkApp.onPublishAnnouncement = nil
+            AnnouncementManager.Reset()
+            ReplyManager.Reset()
+            FeedbackManager.Reset()
+
+            print("[main] 显示结算画面")
+        end,
+
+        --- 关卡结束，回到待机
+        onLevelEnd = function()
+            if not screenContainer_ then return end
+            screenContainer_:ClearChildren()
+            screenContainer_:AddChild(CreateHomeContent())
+
+            -- 隐藏倒计时
+            if countdownLabel_ then
+                countdownLabel_:SetStyle({ display = "none" })
+            end
+
+            -- 清理转发系统
+            ForwardManager.Reset()
+            ChatBubble.SetOnContextMenu(nil)
+
+            -- 清理公告、回复、反馈管理器
+            DingtalkApp.onPublishAnnouncement = nil
+            AnnouncementManager.Reset()
+            ReplyManager.Reset()
+            FeedbackManager.Reset()
+
+            print("[main] 关卡结束，回到主屏幕")
+        end,
+    })
+end
+
+-- ============================================================================
+-- 转发目标选择
+-- ============================================================================
+
+--- 转发 Modal 引用
+---@type table|nil
+local forwardModal_ = nil
+
+--- 转发确认 Modal 引用
+---@type table|nil
+local forwardConfirmModal_ = nil
+
+--- 显示转发确认弹窗
+---@param msg table 要转发的消息
+---@param target table { name=string, app=string }
+function ShowForwardConfirm(msg, target)
+    local appName = target.app == "dingtalk" and "叮叮" or "微言"
+    local preview = msg.content or msg.text or ""
+    if #preview > 40 then
+        preview = preview:sub(1, 40) .. "..."
+    end
+
+    forwardConfirmModal_ = UI.Modal {
+        title = "确认转发",
+        size = "sm",
+        closeOnOverlay = true,
+        closeOnEscape = true,
+        showCloseButton = true,
+        onClose = function(self)
+            forwardConfirmModal_ = nil
+        end,
+    }
+
+    forwardConfirmModal_:AddContent(UI.Panel {
+        width = "100%",
+        flexDirection = "column",
+        gap = 12,
+        padding = 16,
+        alignItems = "center",
+        children = {
+            UI.Label {
+                text = string.format("确认转发到「%s」（%s）？", target.name, appName),
+                fontSize = 13,
+                fontColor = { 220, 220, 240, 255 },
+                textAlign = "center",
+            },
+            -- 消息预览
+            UI.Panel {
+                width = "100%",
+                backgroundColor = { 30, 30, 48, 255 },
+                borderRadius = 6,
+                padding = 10,
+                children = {
+                    UI.Label {
+                        text = preview,
+                        fontSize = 11,
+                        fontColor = { 160, 160, 180, 255 },
+                    },
+                },
+            },
+            -- 按钮行
+            UI.Panel {
+                width = "100%",
+                flexDirection = "row",
+                justifyContent = "center",
+                gap = 12,
+                marginTop = 4,
+                children = {
+                    UI.Button {
+                        width = 80, height = 34,
+                        text = "取消",
+                        fontSize = 12,
+                        backgroundColor = { 60, 60, 80, 255 },
+                        hoverBackgroundColor = { 75, 75, 100, 255 },
+                        borderRadius = 6,
+                        textColor = { 180, 180, 200, 255 },
+                        onClick = function(self)
+                            if forwardConfirmModal_ then
+                                forwardConfirmModal_:Close()
+                                forwardConfirmModal_ = nil
+                            end
+                        end,
+                    },
+                    UI.Button {
+                        width = 80, height = 34,
+                        text = "转发",
+                        fontSize = 12,
+                        backgroundColor = { 48, 118, 255, 255 },
+                        hoverBackgroundColor = { 68, 138, 255, 255 },
+                        borderRadius = 6,
+                        textColor = { 255, 255, 255, 255 },
+                        onClick = function(self)
+                            if forwardConfirmModal_ then
+                                forwardConfirmModal_:Close()
+                                forwardConfirmModal_ = nil
+                            end
+                            ForwardManager.ExecuteForward(msg, target)
+                        end,
+                    },
+                },
+            },
+        },
+    })
+
+    forwardConfirmModal_:Show()
+end
+
+--- 显示转发目标选择 Modal
+---@param msg table 要转发的消息
+function ShowForwardTargetSelector(msg)
+    local targets = ForwardManager.GetTargets()
+    if #targets == 0 then
+        print("[main] 没有可转发目标")
+        return
+    end
+
+    -- 构建目标按钮列表
+    local targetButtons = {}
+    for _, target in ipairs(targets) do
+        local appColor = target.app == "dingtalk"
+            and { 48, 118, 255, 255 }
+            or { 7, 193, 96, 255 }
+        local appName = target.app == "dingtalk" and "叮叮" or "微言"
+
+        targetButtons[#targetButtons + 1] = UI.Button {
+            width = "100%",
+            height = 44,
+            backgroundColor = { 40, 40, 60, 255 },
+            hoverBackgroundColor = { 55, 55, 80, 255 },
+            pressedBackgroundColor = { 70, 70, 100, 255 },
+            borderRadius = 8,
+            borderWidth = 1,
+            borderColor = { 70, 70, 100, 255 },
+            flexDirection = "row",
+            alignItems = "center",
+            paddingHorizontal = 12,
+            gap = 10,
+            onClick = function(self)
+                -- 关闭目标选择 Modal，弹出确认弹窗
+                if forwardModal_ then
+                    forwardModal_:Close()
+                    forwardModal_ = nil
+                end
+                ShowForwardConfirm(msg, target)
+            end,
+            children = {
+                -- 应用颜色标识
+                UI.Panel {
+                    width = 8, height = 8,
+                    borderRadius = 4,
+                    backgroundColor = appColor,
+                    pointerEvents = "none",
+                },
+                -- 聊天名
+                UI.Label {
+                    text = target.name,
+                    fontSize = 12,
+                    fontColor = { 220, 220, 240, 255 },
+                    pointerEvents = "none",
+                },
+                -- 应用名
+                UI.Label {
+                    text = appName,
+                    fontSize = 9,
+                    fontColor = { 130, 130, 160, 255 },
+                    pointerEvents = "none",
+                    marginLeft = "auto",
+                },
+            },
+        }
+    end
+
+    -- 创建 Modal
+    forwardModal_ = UI.Modal {
+        title = "转发到",
+        size = "sm",
+        closeOnOverlay = true,
+        closeOnEscape = true,
+        showCloseButton = true,
+        onClose = function(self)
+            forwardModal_ = nil
+        end,
+    }
+
+    forwardModal_:AddContent(UI.Panel {
+        width = "100%",
+        flexDirection = "column",
+        gap = 8,
+        padding = 12,
+        children = {
+            -- 消息预览
+            UI.Panel {
+                width = "100%",
+                backgroundColor = { 30, 30, 48, 255 },
+                borderRadius = 6,
+                padding = 10,
+                marginBottom = 4,
+                children = {
+                    UI.Label {
+                        text = string.sub(msg.text or msg.content or "", 1, 60),
+                        fontSize = 10,
+                        fontColor = { 160, 160, 180, 255 },
+                        maxLines = 2,
+                    },
+                },
+            },
+            -- 目标列表
+            table.unpack(targetButtons),
+        },
+    })
+
+    forwardModal_:Open()
+end
+
+-- ============================================================================
 -- 通知系统
 -- ============================================================================
 
@@ -938,6 +1444,18 @@ end
 function HandleUpdate(eventType, eventData)
     local dt = eventData["TimeStep"]:GetFloat()
 
+    -- 统一调度子模块 Update（避免多个 SubscribeToEvent("Update") 互相覆盖）
+    if HandleDingtalkChatPageUpdate then
+        HandleDingtalkChatPageUpdate(eventType, eventData)
+    end
+    if HandleWechatPagesUpdate then
+        HandleWechatPagesUpdate(eventType, eventData)
+    end
+
+    -- 聊天列表实时刷新（数据变更时自动重建列表 UI）
+    DingtalkApp.RefreshChatListIfDirty()
+    WechatApp.RefreshChatListIfDirty()
+
     local forceDirty = GameTime.ConsumeDirty()
     local t = GameTime.Now()
     if t.min ~= lastMinute_ or forceDirty then
@@ -965,10 +1483,36 @@ function HandleUpdate(eventType, eventData)
             end
         end
 
-        -- 定时事件检查（每分钟变化时检查一次即可）
-        local triggered = EventScheduler.CheckTriggers()
-        for _, ev in ipairs(triggered) do
-            notifQueue_[#notifQueue_ + 1] = ev
+        -- 定时事件检查（仅旧叙事模式，每分钟变化时检查一次即可）
+        if not levelMode_ then
+            local triggered = EventScheduler.CheckTriggers()
+            for _, ev in ipairs(triggered) do
+                notifQueue_[#notifQueue_ + 1] = ev
+            end
+        end
+    end
+
+    -- 关卡模式：LevelManager 驱动（消息调度 + 到期检测）
+    if levelMode_ then
+        LevelManager.Update(dt)
+
+        -- 驱动公告检查与回复超时（仅 playing 状态）
+        if LevelManager.IsPlaying() then
+            local elapsed = LevelTimer.GetElapsed()
+            AnnouncementManager.CheckAtTime(elapsed)
+            ReplyManager.Update(elapsed)
+            FeedbackManager.Update(elapsed)
+        end
+
+        -- 更新倒计时标签（仅 playing 状态）
+        if LevelManager.IsPlaying() and countdownLabel_ then
+            countdownLabel_:SetText(LevelTimer.GetFormattedRemaining())
+            -- 最后60秒变红闪烁效果
+            local remain = LevelTimer.GetRemaining()
+            if remain <= 60 then
+                local alpha = math.floor(180 + 75 * math.abs(math.sin(os.clock() * 3)))
+                countdownLabel_:SetStyle({ fontColor = { 255, 60, 60, alpha } })
+            end
         end
     end
 

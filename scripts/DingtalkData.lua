@@ -31,6 +31,14 @@ local cachedDings_ = nil
 ---@type table[]|nil
 local cachedCalendar_ = nil
 
+--- 运行时消息存储（关卡系统动态添加的消息）
+---@type table<string, table[]>
+local runtimeMessages_ = {}
+
+--- 消息监听器（chatName → callback(msg)）
+---@type table<string, fun(msg: table)>
+local messageListeners_ = {}
+
 -- ============================================================================
 -- 聊天列表
 -- ============================================================================
@@ -462,6 +470,120 @@ function Data.SearchAll(keyword)
 end
 
 -- ============================================================================
+-- 运行时消息管理（关卡系统使用）
+-- ============================================================================
+
+--- 添加运行时消息到指定聊天
+---@param chatName string
+---@param sender string
+---@param text string
+function Data.AddMessage(chatName, sender, text, extra)
+    if not runtimeMessages_[chatName] then
+        runtimeMessages_[chatName] = {}
+    end
+    local msgs = runtimeMessages_[chatName]
+    local entry = {
+        sender = sender,
+        text   = text,
+    }
+    -- 合并额外字段（关卡系统可附加 chat, forwardTarget, chainId 等）
+    if extra then
+        for k, v in pairs(extra) do
+            entry[k] = v
+        end
+    end
+    msgs[#msgs + 1] = entry
+    -- 更新聊天列表预览
+    Data.UpdateChatPreview(chatName, sender .. ": " .. text)
+    -- 通知监听器
+    local listener = messageListeners_[chatName]
+    if listener then
+        listener(entry)
+    end
+end
+
+--- 获取指定聊天的运行时消息
+---@param chatName string
+---@return table[]
+function Data.GetRuntimeMessages(chatName)
+    return runtimeMessages_[chatName] or {}
+end
+
+--- 注册消息监听器（聊天页面打开时调用）
+---@param chatName string
+---@param callback fun(msg: table)
+function Data.SetMessageListener(chatName, callback)
+    messageListeners_[chatName] = callback
+end
+
+--- 移除消息监听器（聊天页面关闭时调用）
+---@param chatName string
+function Data.RemoveMessageListener(chatName)
+    messageListeners_[chatName] = nil
+end
+
+--- 确保聊天列表中存在指定聊天，不存在则创建
+---@param chatName string
+---@param iconBg string|table|nil 图标背景色
+---@param iconText string|nil 图标文字
+---@return table chatData
+function Data.EnsureChat(chatName, iconBg, iconText)
+    local chats = Data.GetChats()
+    for _, chat in ipairs(chats) do
+        if chat.name == chatName then
+            return chat
+        end
+    end
+    local initial = string.sub(chatName, 1, 4)
+    local bgColor = iconBg
+    if type(iconBg) == "string" and iconBg ~= "" then
+        bgColor = resolveColor(iconBg) or { 100, 100, 120, 255 }
+    elseif type(iconBg) ~= "table" then
+        bgColor = { 100, 100, 120, 255 }
+    end
+    local newChat = {
+        name     = chatName,
+        tag      = "",
+        tagColor = nil,
+        time     = "",
+        msg      = "",
+        badge    = 0,
+        iconBg   = bgColor,
+        iconText = iconText or initial,
+    }
+    table.insert(chats, 1, newChat)
+    return newChat
+end
+
+--- 聊天列表脏标记（UpdateChatPreview 时置 true，UI 消费后置 false）
+local chatListDirty_ = false
+
+--- 更新聊天列表中某个聊天的最后一条消息摘要
+---@param chatName string
+---@param lastMsg string
+function Data.UpdateChatPreview(chatName, lastMsg)
+    local chats = Data.GetChats()
+    for _, chat in ipairs(chats) do
+        if chat.name == chatName then
+            chat.msg = lastMsg
+            chat.time = "刚刚"
+            chatListDirty_ = true
+            return
+        end
+    end
+end
+
+--- 检查并消费聊天列表脏标记
+---@return boolean 是否有更新
+function Data.ConsumeChatListDirty()
+    if chatListDirty_ then
+        chatListDirty_ = false
+        return true
+    end
+    return false
+end
+
+-- ============================================================================
 -- 热重载支持
 -- ============================================================================
 
@@ -482,6 +604,8 @@ function Data.Invalidate()
     cachedScenarios_ = nil
     cachedTodos_ = nil
     cachedDings_ = nil
+    runtimeMessages_ = {}
+    messageListeners_ = {}
     cachedCalendar_ = nil
     print("[DingtalkData] 缓存已清除，下次访问将重新加载 CSV")
 end

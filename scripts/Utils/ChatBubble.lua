@@ -1,7 +1,7 @@
 -- ============================================================================
 -- 聊天气泡公共组件 (Chat Bubble Component)
 -- 功能: 统一的聊天气泡 UI 创建，供叮叮和微言聊天页面复用
--- 支持: 点击气泡复制消息文本到剪贴板
+-- 支持: 长按/右键弹出上下文菜单（转发/复制），点击复制到剪贴板
 -- ============================================================================
 
 local UI = require("urhox-libs/UI")
@@ -12,10 +12,21 @@ local ChatBubble = {}
 ---@type fun(text: string)|nil
 ChatBubble._onCopied = nil
 
+--- 上下文菜单回调（由关卡系统注册，长按/右键时触发）
+--- 签名: function(msg, x, y)  msg=消息数据, x/y=弹出位置
+---@type fun(msg: table, x: number, y: number)|nil
+ChatBubble._onContextMenu = nil
+
 --- 注册复制成功回调
 ---@param callback fun(text: string)|nil
 function ChatBubble.SetOnCopied(callback)
     ChatBubble._onCopied = callback
+end
+
+--- 注册上下文菜单回调（关卡模式使用）
+---@param callback fun(msg: table, x: number, y: number)|nil
+function ChatBubble.SetOnContextMenu(callback)
+    ChatBubble._onContextMenu = callback
 end
 
 --- 生成略深的 hover/pressed 颜色
@@ -97,6 +108,7 @@ function ChatBubble.Create(msg, chatIconBg, style)
         displayText = " "  -- 防止空文本导致布局异常
     end
 
+    -- 气泡按钮：支持点击复制 + 长按/右键弹出上下文菜单
     local bubble = UI.Button {
         maxWidth = "70%",
         backgroundColor = bubbleBg,
@@ -105,7 +117,17 @@ function ChatBubble.Create(msg, chatIconBg, style)
         borderRadius = style.bubbleRadius,
         paddingHorizontal = 10,
         paddingVertical = 8,
+
+        -- 点击：有上下文菜单时弹出菜单（PC 端主交互），否则复制
         onClick = function(self)
+            if ChatBubble._onContextMenu then
+                -- 使用引擎原始鼠标坐标，转换到 UI 基准坐标系
+                local scale = UI.GetScale()
+                local mx = input.mousePosition.x / scale
+                local my = input.mousePosition.y / scale
+                ChatBubble._onContextMenu(msg, mx, my)
+                return
+            end
             if msg.text and msg.text ~= "" then
                 ui:SetClipboardText(msg.text)
                 if ChatBubble._onCopied then
@@ -113,6 +135,25 @@ function ChatBubble.Create(msg, chatIconBg, style)
                 end
             end
         end,
+
+        -- 长按：弹出上下文菜单（移动端触屏）
+        onLongPressStart = function(event, widget)
+            if ChatBubble._onContextMenu then
+                ChatBubble._onContextMenu(msg, event.x, event.y)
+            end
+        end,
+
+        -- 右键：弹出上下文菜单（桌面端备选）
+        onPointerDown = function(event, widget)
+            if event.button == MOUSEB_RIGHT and ChatBubble._onContextMenu then
+                -- 使用引擎原始鼠标坐标（event.x/y 是 widget-local，不适合定位菜单）
+                local scale = UI.GetScale()
+                local mx = input.mousePosition.x / scale
+                local my = input.mousePosition.y / scale
+                ChatBubble._onContextMenu(msg, mx, my)
+            end
+        end,
+
         children = {
             UI.Label {
                 text = displayText,
@@ -137,6 +178,35 @@ function ChatBubble.Create(msg, chatIconBg, style)
                 alignItems = "flex-start",
                 gap = 6,
                 children = rowChildren,
+            },
+        },
+    }
+end
+
+--- 创建系统提示（居中灰色文字，无气泡无头像）
+---@param text string 提示文字
+---@return table UI 组件
+function ChatBubble.CreateSystemNotice(text)
+    return UI.Panel {
+        width = "100%",
+        flexDirection = "row",
+        justifyContent = "center",
+        paddingVertical = 6,
+        children = {
+            UI.Panel {
+                backgroundColor = { 0, 0, 0, 60 },
+                borderRadius = 4,
+                paddingHorizontal = 10,
+                paddingVertical = 4,
+                children = {
+                    UI.Label {
+                        text = text or "",
+                        fontSize = 10,
+                        fontColor = { 160, 160, 180, 255 },
+                        textAlign = "center",
+                        pointerEvents = "none",
+                    },
+                },
             },
         },
     }

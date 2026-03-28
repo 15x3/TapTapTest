@@ -1,0 +1,40 @@
+time_offset,app,chat,sender,type,content,priority,forward_target,keywords,reply_hint,chain_id,chain_name
+0,dingtalk,周老师,周老师,message,嗨，下课了吧？跟你说一声，刘主任待会儿会在年级群发调课通知，记得转发给家长群。对了，张主任可能也会找你催体检表的事，别漏回了。加油，新手村第一天 :),noise,,,,,
+5,wechat,七(3)班家长群,李妈妈,message,[图片] 早安，美好的一天从微笑开始~,noise,,,,,
+15,wechat,七(3)班家长群,赵妈妈,message,早上好[太阳],noise,,,,,
+30,dingtalk,年级工作群,刘主任,message,@所有人 通知：本周三（明天）下午第六、七节课调整为自习课，请各班主任务必通知到每位家长。,important,七(3)班家长群|七年三班家校群,,,A,调课通知
+45,dingtalk,年级工作群,周老师,message,又调课，这学期第几次了,noise,,,,,
+60,dingtalk,年级工作群,陈老师,message,第三次了吧，习惯就好,noise,,,,,
+75,wechat,七(3)班同学群,小红,message,哈哈哈哈昨晚那个视频笑死我了,noise,,,,,
+90,wechat,七(3)班家长群,张家长,message,老师，昨天的语文作业是哪几页来着？,noise,,,,,
+100,dingtalk,七年三班班级群,学生D,message,上节课数学作业交了吗,noise,,,,,
+110,dingtalk,七年三班班级群,学生E,message,交了，你没交？,noise,,,,,
+120,wechat,王爸爸,王爸爸,message,老师您好，打扰一下,important,,,,D,家长求助
+125,wechat,王爸爸,王爸爸,wait_reply,孩子说眼镜坏了，上课看不清黑板，能不能先安排坐前面几天？麻烦老师了,important,,好的|没问题|可以|安排|座位|前面,好的家长，我先给孩子调个前排座位，您尽快带去配副新眼镜哈,D,家长求助
+135,wechat,七(3)班家长群,李妈妈,message,[链接] 《培养孩子自律的十个方法》,noise,,,,,
+150,wechat,七(3)班同学群,学生A,message,第三题选什么啊,noise,,,,,
+160,wechat,七(3)班同学群,小红,message,不会+1,noise,,,,,
+180,dingtalk,张主任,张主任,wait_reply,老师辛苦了，上周体检表各班收齐了吗？麻烦今天下午放学前交到教务处哈~,important,,收到|好的|没问题|交|齐了|在收,收到主任，基本收齐了，下午放学前交到教务处,B,体检表催收
+195,dingtalk,年级工作群,周老师,message,有人知道运动会报名表在哪下载吗,noise,,,,,
+210,dingtalk,年级工作群,陈老师,message,教务处共享文件夹里，找了半天才找到,noise,,,,,
+220,wechat,七(3)班家长群,赵妈妈,message,老师，孩子回来说最近数学有点跟不上，需要额外补一补吗？,noise,,,,,
+240,dingtalk,年级工作群,刘主任,message,另外提醒一下，本周五下午全校体检，请各班通知学生当天穿宽松衣物，不要佩戴首饰。体检前一天晚上十点后禁食禁水。,important,七(3)班家长群|七年三班家校群,,,C,体检注意事项
+255,dingtalk,年级工作群,陈老师,message,[链接] 分享一篇好文章：《新课标下的课堂教学设计》,noise,,,,,
+270,dingtalk,七年三班家校群,家长B,message,老师好，新学期辛苦了[玫瑰],noise,,,,,
+285,wechat,七(3)班同学群,学生B,message,有人看了昨天的比赛吗 太精彩了,noise,,,,,
+295,wechat,七(3)班同学群,小红,message,看了看了！最后那个绝杀！,noise,,,,,
+300,wechat,七(3)班家长群,赵妈妈,message,老师，调课是周三下午对吧？具体是第几节开始？,noise,,,,,
+315,dingtalk,年级工作群,周老师,message,体检又来了，上学期我班有三个请假没检，这次得盯紧了,noise,,,,,
+335,wechat,七(3)班家长群,李妈妈,message,[图片] 孩子昨天在学校画的画，很棒吧！,noise,,,,,
+345,wechat,七(3)班同学群,学生C,message,明天要带什么东西来吗,noise,,,,,
+360,wechat,小明（班长）,小明,message,老师，课间的时候张同学和李同学在走廊上推来推去的，差点摔倒了,important,,,,E,学生突发事件
+370,wechat,小明（班长）,小明,wait_reply,要不要我先去叫他们停下来？,important,,好的|去|叫|停|注意|安全|小心|别,好的，你先去让他们别推了，注意安全，我马上过来,E,学生突发事件
+385,wechat,七(3)班家长群,李妈妈,message,话说运动会是什么时候啊？有通知吗,noise,,,,,
+405,wechat,七(3)班家长群,张家长,message,好像下个月吧，还没正式通知,noise,,,,,
+420,dingtalk,年级工作群,刘主任,message,请各位班主任确认已收到调课和体检通知，在群里回复"收到",noise,,,,,
+435,dingtalk,年级工作群,周老师,message,收到,noise,,,,,
+450,wechat,七(3)班同学群,学生A,message,@老师 下午体育课还上吗,noise,,,,,
+480,wechat,七(3)班家长群,赵妈妈,message,老师，体检那天要空腹吗？孩子早上不吃饭会低血糖,noise,,,,,
+500,wechat,七(3)班同学群,小红,message,[表情包],noise,,,,,
+515,dingtalk,七年三班家校群,家长C,message,收到老师的消息了[OK],noise,,,,,
+540,dingtalk,七年三班班级群,系统,system,还剩1分钟，别忘了在班级群发布公告,normal,,,,,
