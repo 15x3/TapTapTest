@@ -9,6 +9,8 @@ local ChatEventManager = require("ChatEventManager")
 local ChatBubble = require("Utils.ChatBubble")
 local ReplyManager = require("Level.ReplyManager")
 local LevelManager = require("Level.LevelManager")
+local GuideOverlay = require("UI.GuideOverlay")
+local SoundManager = require("Utils.SoundManager")
 local Common = require("DingtalkPagesCommon")
 local C = Common.C
 
@@ -129,8 +131,9 @@ end
 ---@param chatName string 聊天对象名称
 ---@param chatIconBg table 聊天图标背景色
 ---@param onBack function 返回回调
+---@param onAnnounce function|nil 发布公告回调（仅班级群/家校群传入）
 ---@return table UI.Panel
-function M.Create(chatName, chatIconBg, onBack)
+function M.Create(chatName, chatIconBg, onBack, onAnnounce)
     -- 确保 Update 订阅已注册
     ensureUpdate()
 
@@ -207,8 +210,22 @@ function M.Create(chatName, chatIconBg, onBack)
     end
 
     -- 注册消息监听器（新消息到达时自动显示）
+    ---@type table|nil
+    local chatPanel_ = nil  -- 延迟引用，由下方 chatPanel 赋值
     DingtalkData.SetMessageListener(chatName, function(msg)
         addBubble(msg)
+        -- 年级工作群首次收到重要通知 → 引导用户去发公告
+        if chatName == "年级工作群" and msg.priority == "important" and chatPanel_ then
+            GuideOverlay.ShowOnce("guide_announce_from_notice", {
+                title = "收到重要通知",
+                lines = {
+                    "这条消息需要通知到家长",
+                    "请前往「班级群」或「家校群」",
+                    "点击右下角「公告」按钮发布",
+                },
+                parent = chatPanel_,
+            })
+        end
     end)
 
     -- 关卡模式下不加载场景事件（关卡消息完全由 LevelMessageScheduler + messages.csv 驱动）
@@ -277,6 +294,9 @@ function M.Create(chatName, chatIconBg, onBack)
         local trimmed = text:match("^%s*(.-)%s*$")
         if trimmed == "" then return end
 
+        -- 播放发送音效
+        SoundManager.PlaySFX(SoundManager.SFX.MSG_SENT, 0.5)
+
         -- 保存到数据层（AddMessage 会自动触发监听器 → addBubble）
         DingtalkData.AddMessage(chatName, "我", trimmed)
 
@@ -343,12 +363,41 @@ function M.Create(chatName, chatIconBg, onBack)
         },
     }
 
-    return UI.Panel {
-        width = "100%",
-        height = "100%",
-        backgroundColor = { 240, 240, 240, 255 },
-        flexDirection = "column",
-        children = {
+    -- 公告浮动按钮（仅班级群/家校群传入 onAnnounce 时显示）
+    local announceBtn = nil
+    if onAnnounce then
+        announceBtn = UI.Button {
+            position = "absolute",
+            bottom = 60,
+            right = 10,
+            width = 44,
+            height = 44,
+            backgroundColor = { 255, 140, 0, 240 },
+            hoverBackgroundColor = { 255, 160, 40, 255 },
+            pressedBackgroundColor = { 220, 120, 0, 255 },
+            borderRadius = 22,
+            justifyContent = "center",
+            alignItems = "center",
+            zIndex = 800,
+            boxShadow = {
+                { x = 0, y = 3, blur = 10, spread = 1, color = { 0, 0, 0, 120 } },
+            },
+            onClick = function(self)
+                onAnnounce()
+            end,
+            children = {
+                UI.Label {
+                    text = "公告",
+                    fontSize = 9,
+                    fontColor = { 255, 255, 255, 255 },
+                    pointerEvents = "none",
+                },
+            },
+        }
+    end
+
+    -- 构建子元素列表
+    local chatChildren = {
             -- 顶栏
             UI.Panel {
                 width = "100%",
@@ -451,8 +500,54 @@ function M.Create(chatName, chatIconBg, onBack)
             end)(),
             -- "已复制" toast 覆盖层（绝对定位）
             copyToastLabel_,
-        },
     }
+
+    -- 条件性添加公告浮动按钮
+    if announceBtn then
+        chatChildren[#chatChildren + 1] = announceBtn
+    end
+
+    local chatPanel = UI.Panel {
+        width = "100%",
+        height = "100%",
+        backgroundColor = { 240, 240, 240, 255 },
+        flexDirection = "column",
+        children = chatChildren,
+    }
+    chatPanel_ = chatPanel  -- 供消息监听器闭包引用
+
+    -- 年级工作群：若已有重要通知消息，进入时也触发公告引导
+    if chatName == "年级工作群" then
+        for _, msg in ipairs(existingMsgs) do
+            if msg.priority == "important" then
+                GuideOverlay.ShowOnce("guide_announce_from_notice", {
+                    title = "收到重要通知",
+                    lines = {
+                        "这条消息需要通知到家长",
+                        "请前往「班级群」或「家校群」",
+                        "点击右下角「公告」按钮发布",
+                    },
+                    parent = chatPanel,
+                })
+                break
+            end
+        end
+    end
+
+    -- 首次进入有待回复消息的聊天 → 显示自动回复引导
+    if replyHintText_ then
+        GuideOverlay.ShowOnce("guide_auto_reply", {
+            title = "自动回复",
+            lines = {
+                "这条消息需要你回复",
+                "随意敲几下键盘即可自动填充",
+                "填充完成后点击「发送」",
+            },
+            parent = chatPanel,
+        })
+    end
+
+    return chatPanel
 end
 
 return M

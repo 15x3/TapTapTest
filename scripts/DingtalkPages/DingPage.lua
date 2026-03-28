@@ -1,6 +1,8 @@
 local UI = require("urhox-libs/UI")
 local DingtalkData = require("DingtalkData")
 local Common = require("DingtalkPagesCommon")
+local TextUtils = require("Utils.TextUtils")
+local truncate = TextUtils.truncate
 local C = Common.C
 
 local M = {}
@@ -43,12 +45,14 @@ function M.Create(onBack)
                         flexDirection = "row",
                         justifyContent = "space-between",
                         alignItems = "center",
+                        overflow = "hidden",
                         children = {
                             UI.Panel {
                                 flexDirection = "row",
                                 alignItems = "center",
                                 gap = 6,
                                 flexShrink = 1,
+                                overflow = "hidden",
                                 children = {
                                     UI.Panel {
                                         width = 20, height = 20,
@@ -61,7 +65,7 @@ function M.Create(onBack)
                                         },
                                     },
                                     UI.Label {
-                                        text = ding.sender,
+                                        text = truncate(ding.sender, 10),
                                         fontSize = 12,
                                         fontColor = C.text,
                                         maxLines = 1,
@@ -69,16 +73,15 @@ function M.Create(onBack)
                                     },
                                 },
                             },
-                            UI.Label { text = ding.time, fontSize = 9, fontColor = C.textSec },
+                            UI.Label { text = ding.time, fontSize = 9, fontColor = C.textSec, flexShrink = 0 },
                         },
                     },
                     -- 内容
                     UI.Label {
-                        text = ding.content,
+                        text = truncate(ding.content, 30),
                         fontSize = 11,
                         fontColor = { 60, 60, 60, 255 },
                         maxLines = 2,
-                        whiteSpace = "normal",
                     },
                     -- 状态标签
                     UI.Panel {

@@ -5,6 +5,8 @@
 local UI = require("urhox-libs/UI")
 local DingtalkData = require("DingtalkData")
 local Common = require("DingtalkPagesCommon")
+local TextUtils = require("Utils.TextUtils")
+local truncate = TextUtils.truncate
 local C = Common.C
 
 local M = {}
@@ -80,12 +82,14 @@ function M.Create(onBack)
                         flexGrow = 1, flexBasis = 0, flexShrink = 1,
                         flexDirection = "column",
                         gap = 3,
+                        overflow = "hidden",
                         pointerEvents = "none",
                         children = {
                             UI.Label {
-                                text = todo.text,
+                                text = truncate(todo.text, 20),
                                 fontSize = 12,
                                 fontColor = todo.done and C.textSec or C.text,
+                                maxLines = 1,
                             },
                             UI.Panel {
                                 flexDirection = "row",

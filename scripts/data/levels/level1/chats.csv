@@ -5,6 +5,6 @@ name,app,icon_color,icon_text,is_forward_target
 七年三班家校群,dingtalk,green,家校,yes
 七年三班班级群,dingtalk,orange,班级,yes
 七(3)班家长群,wechat,pink,家长,yes
-七(3)班同学群,wechat,cyan,同学,yes
+七(3)班同学群,wechat,cyan,同学,no
 王爸爸,wechat,gray,王,no
 小明（班长）,wechat,blue,明,no

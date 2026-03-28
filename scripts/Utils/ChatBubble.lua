@@ -5,6 +5,7 @@
 -- ============================================================================
 
 local UI = require("urhox-libs/UI")
+local SoundManager = require("Utils.SoundManager")
 
 local ChatBubble = {}
 
@@ -76,9 +77,11 @@ ChatBubble.WECHAT = {
 ---@param msg table 消息数据 { sender, text }
 ---@param chatIconBg table|nil 对方头像背景色 RGBA
 ---@param style table|nil 风格配置（默认使用 DINGTALK）
+---@param opts table|nil 扩展选项 { avatarImage=string, selfAvatarImage=string }
 ---@return table UI 组件
-function ChatBubble.Create(msg, chatIconBg, style)
+function ChatBubble.Create(msg, chatIconBg, style, opts)
     style = style or ChatBubble.DINGTALK
+    opts = opts or {}
 
     local isSelf = msg.sender == "我"
     local bubbleBg = isSelf and style.selfBubbleColor or style.otherBubbleColor
@@ -87,70 +90,68 @@ function ChatBubble.Create(msg, chatIconBg, style)
     local avatarBg = isSelf and style.selfAvatarColor or (chatIconBg or { 80, 120, 200, 255 })
     local avatarText = isSelf and "我" or string.sub(msg.sender, 1, 3)
 
-    local avatar = UI.Panel {
-        width = style.avatarSize, height = style.avatarSize,
-        backgroundColor = avatarBg,
-        borderRadius = style.avatarRadius,
-        justifyContent = "center",
-        alignItems = "center",
-        children = {
-            UI.Label {
-                text = avatarText,
-                fontSize = 9,
-                fontColor = { 255, 255, 255, 255 },
-                textAlign = "center",
+    -- 优先使用头像图片
+    local avatarImg = isSelf and opts.selfAvatarImage or opts.avatarImage
+
+    local avatar
+    if avatarImg then
+        avatar = UI.Panel {
+            width = style.avatarSize, height = style.avatarSize,
+            backgroundImage = avatarImg,
+            backgroundFit = "cover",
+            borderRadius = style.avatarRadius,
+        }
+    else
+        avatar = UI.Panel {
+            width = style.avatarSize, height = style.avatarSize,
+            backgroundColor = avatarBg,
+            borderRadius = style.avatarRadius,
+            justifyContent = "center",
+            alignItems = "center",
+            children = {
+                UI.Label {
+                    text = avatarText,
+                    fontSize = 9,
+                    fontColor = { 255, 255, 255, 255 },
+                    textAlign = "center",
+                },
             },
-        },
-    }
+        }
+    end
 
     local displayText = msg.text
     if not displayText or displayText == "" then
         displayText = " "  -- 防止空文本导致布局异常
     end
 
-    -- 气泡按钮：支持点击复制 + 长按/右键弹出上下文菜单
-    local bubble = UI.Button {
+    -- 气泡面板：使用 Panel 实现 children 自适应尺寸 + 点击交互
+    local bubble = UI.Panel {
         maxWidth = "70%",
         backgroundColor = bubbleBg,
-        hoverBackgroundColor = darken(bubbleBg, 15),
-        pressedBackgroundColor = darken(bubbleBg, 30),
         borderRadius = style.bubbleRadius,
         paddingHorizontal = 10,
         paddingVertical = 8,
+        cursor = "pointer",
 
-        -- 点击：有上下文菜单时弹出菜单（PC 端主交互），否则复制
+        -- 点击：弹出上下文菜单（PC左键 / 移动端轻触，统一入口）
         onClick = function(self)
+            print(string.format("[ChatBubble] onClick triggered | _onContextMenu=%s | sender=%s",
+                tostring(ChatBubble._onContextMenu ~= nil), msg.sender or "?"))
             if ChatBubble._onContextMenu then
                 -- 使用引擎原始鼠标坐标，转换到 UI 基准坐标系
                 local scale = UI.GetScale()
                 local mx = input.mousePosition.x / scale
                 local my = input.mousePosition.y / scale
+                print(string.format("[ChatBubble] 弹出菜单 at (%.0f, %.0f) scale=%.2f", mx, my, scale))
                 ChatBubble._onContextMenu(msg, mx, my)
                 return
             end
             if msg.text and msg.text ~= "" then
                 ui:SetClipboardText(msg.text)
+                SoundManager.PlaySFX(SoundManager.SFX.COPY, 0.5)
                 if ChatBubble._onCopied then
                     ChatBubble._onCopied(msg.text)
                 end
-            end
-        end,
-
-        -- 长按：弹出上下文菜单（移动端触屏）
-        onLongPressStart = function(event, widget)
-            if ChatBubble._onContextMenu then
-                ChatBubble._onContextMenu(msg, event.x, event.y)
-            end
-        end,
-
-        -- 右键：弹出上下文菜单（桌面端备选）
-        onPointerDown = function(event, widget)
-            if event.button == MOUSEB_RIGHT and ChatBubble._onContextMenu then
-                -- 使用引擎原始鼠标坐标（event.x/y 是 widget-local，不适合定位菜单）
-                local scale = UI.GetScale()
-                local mx = input.mousePosition.x / scale
-                local my = input.mousePosition.y / scale
-                ChatBubble._onContextMenu(msg, mx, my)
             end
         end,
 

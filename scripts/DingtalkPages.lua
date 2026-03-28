@@ -40,9 +40,10 @@ end
 ---@param chatName string 聊天对象名称
 ---@param chatIconBg table 聊天图标背景色
 ---@param onBack function 返回回调
+---@param onAnnounce function|nil 发布公告回调（仅班级群/家校群）
 ---@return table UI.Panel
-function M.CreateChatPage(chatName, chatIconBg, onBack)
-    return ChatPage.Create(chatName, chatIconBg, onBack)
+function M.CreateChatPage(chatName, chatIconBg, onBack, onAnnounce)
+    return ChatPage.Create(chatName, chatIconBg, onBack, onAnnounce)
 end
 
 --- 创建联系人详情页面

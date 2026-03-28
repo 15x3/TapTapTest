@@ -9,6 +9,8 @@ local UI = require("urhox-libs/UI")
 local WechatPages = require("WechatPages")
 local WechatData = require("WechatData")
 local WechatCommon = require("WechatPagesCommon")
+local TextUtils = require("Utils.TextUtils")
+local truncate = TextUtils.truncate
 
 local App = {}
 
@@ -20,6 +22,7 @@ local wxContentContainer_ = nil
 local wxActiveTab_ = "chat"
 local wxTabBarContainer_ = nil
 local goHomeFn_ = nil
+local wxCurrentPage_ = "main"    -- 当前子页面："main"|"chat"|"contact_detail"
 
 -- ============================================================================
 -- 导航系统
@@ -28,6 +31,7 @@ local goHomeFn_ = nil
 --- 导航到聊天详情页
 local function navigateToChat(chatData)
     if not wxContentContainer_ then return end
+    wxCurrentPage_ = "chat"
     wxContentContainer_:ClearChildren()
     local backToMain = function() App.switchTab("chat") end
     wxContentContainer_:AddChild(WechatPages.CreateChatPage(chatData.name, chatData.iconBg, backToMain))
@@ -36,6 +40,7 @@ end
 --- 导航到联系人详情页
 local function navigateToContactDetail(contact)
     if not wxContentContainer_ then return end
+    wxCurrentPage_ = "contact_detail"
     wxContentContainer_:ClearChildren()
     local backToContacts = function() App.switchTab("contacts") end
     -- "发消息"回调：确保聊天存在 → 跳转到聊天页
@@ -69,6 +74,7 @@ end
 
 function App.switchTab(tabId)
     wxActiveTab_ = tabId
+    wxCurrentPage_ = "main"
     if not wxContentContainer_ then return end
     wxContentContainer_:ClearChildren()
 
@@ -202,16 +208,12 @@ end
 
 --- 聊天列表项
 function App._createChatItem(chat)
-    local iconChildren = {
-        UI.Label {
-            text = chat.iconText,
-            fontSize = 10,
-            fontColor = { 255, 255, 255, 255 },
-            textAlign = "center",
-            pointerEvents = "none",
-        },
-    }
+    -- 查找头像图片
+    local avatarImg = WechatData.GetAvatarImage(chat.name)
 
+    local iconChildren = {}
+
+    -- 角标（未读消息）
     if chat.badge and chat.badge > 0 then
         iconChildren[#iconChildren + 1] = UI.Panel {
             position = "absolute",
@@ -232,6 +234,30 @@ function App._createChatItem(chat)
         }
     end
 
+    -- 无图片时显示文字
+    if not avatarImg then
+        table.insert(iconChildren, 1, UI.Label {
+            text = chat.iconText,
+            fontSize = 10,
+            fontColor = { 255, 255, 255, 255 },
+            textAlign = "center",
+            pointerEvents = "none",
+        })
+    end
+
+    -- 头像面板：有图片用 backgroundImage，否则用纯色
+    local avatarPanel = UI.Panel {
+        width = 44, height = 44,
+        backgroundColor = avatarImg and { 255, 255, 255, 0 } or chat.iconBg,
+        backgroundImage = avatarImg,
+        backgroundFit = "cover",
+        borderRadius = 6,
+        justifyContent = "center",
+        alignItems = "center",
+        pointerEvents = "none",
+        children = iconChildren,
+    }
+
     return UI.Button {
         width = "100%",
         height = 64,
@@ -249,15 +275,7 @@ function App._createChatItem(chat)
         onClick = function(self) navigateToChat(chat) end,
         children = {
             -- 头像
-            UI.Panel {
-                width = 44, height = 44,
-                backgroundColor = chat.iconBg,
-                borderRadius = 6,
-                justifyContent = "center",
-                alignItems = "center",
-                pointerEvents = "none",
-                children = iconChildren,
-            },
+            avatarPanel,
             -- 内容
             UI.Panel {
                 flexGrow = 1, flexBasis = 0, flexShrink = 1,
@@ -274,7 +292,7 @@ function App._createChatItem(chat)
                         overflow = "hidden",
                         children = {
                             UI.Label {
-                                text = chat.name,
+                                text = truncate(chat.name, 12),
                                 fontSize = 13,
                                 fontColor = WX.text,
                                 maxLines = 1,
@@ -289,11 +307,10 @@ function App._createChatItem(chat)
                         },
                     },
                     UI.Label {
-                        text = chat.msg,
+                        text = truncate(chat.msg, 20),
                         fontSize = 10,
                         fontColor = WX.textSec,
                         maxLines = 1,
-                        overflow = "hidden",
                     },
                 },
             },
@@ -409,6 +426,7 @@ function App._createContactsPage()
                 end
 
                 local contactRef = c
+                local contactAvatar = WechatData.GetAvatarImage(c.name)
                 contactWidgets[#contactWidgets + 1] = UI.Button {
                     width = "100%",
                     height = 52,
@@ -428,12 +446,14 @@ function App._createContactsPage()
                     children = {
                         UI.Panel {
                             width = 36, height = 36,
-                            backgroundColor = avatarBg,
+                            backgroundColor = contactAvatar and { 255, 255, 255, 0 } or avatarBg,
+                            backgroundImage = contactAvatar,
+                            backgroundFit = "cover",
                             borderRadius = 6,
                             justifyContent = "center",
                             alignItems = "center",
                             pointerEvents = "none",
-                            children = {
+                            children = contactAvatar and {} or {
                                 UI.Label { text = c.initial, fontSize = 14, fontColor = { 255, 255, 255, 255 } },
                             },
                         },
@@ -673,14 +693,10 @@ function App._createMePage()
                                     -- 头像
                                     UI.Panel {
                                         width = 56, height = 56,
-                                        backgroundColor = { 100, 160, 220, 255 },
+                                        backgroundImage = WechatData.SELF_AVATAR,
+                                        backgroundFit = "cover",
                                         borderRadius = 8,
-                                        justifyContent = "center",
-                                        alignItems = "center",
                                         pointerEvents = "none",
-                                        children = {
-                                            UI.Label { text = "陈", fontSize = 22, fontColor = { 255, 255, 255, 255 } },
-                                        },
                                     },
                                     -- 信息
                                     UI.Panel {
@@ -690,7 +706,7 @@ function App._createMePage()
                                         pointerEvents = "none",
                                         children = {
                                             UI.Label {
-                                                text = "陈星河",
+                                                text = "陈老师",
                                                 fontSize = 17,
                                                 fontColor = WX.text,
                                                 fontWeight = "bold",
@@ -894,8 +910,8 @@ end
 --- 检查并刷新聊天列表（由 main.lua HandleUpdate 调度）
 function App.RefreshChatListIfDirty()
     if WechatData.ConsumeChatListDirty() then
-        -- 仅在聊天列表 Tab 可见时重建
-        if wxActiveTab_ == "chat" and wxContentContainer_ then
+        -- 仅在聊天列表主页时才重建（子页面如聊天页不受影响）
+        if wxActiveTab_ == "chat" and wxCurrentPage_ == "main" and wxContentContainer_ then
             wxContentContainer_:ClearChildren()
             wxContentContainer_:AddChild(App._createChatListPage())
         end

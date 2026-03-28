@@ -110,9 +110,10 @@ function ForwardManager.ExecuteForward(msg, targetChat)
     }
     forwardLog_[#forwardLog_ + 1] = logEntry
 
-    -- 投递消息到目标聊天（以"班主任"身份发送原文）
+    -- 投递消息到目标聊天（以"班主任"身份发送，带 [转发] 前缀）
     if callbacks_.onDeliverMessage then
-        callbacks_.onDeliverMessage(targetChat.app, targetChat.name, "班主任", msg.content or msg.text or "")
+        local forwardText = "[转发] " .. (msg.content or msg.text or "")
+        callbacks_.onDeliverMessage(targetChat.app, targetChat.name, "班主任", forwardText)
     end
 
     -- 触发结果回调

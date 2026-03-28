@@ -7,6 +7,8 @@ local DingtalkData = require("DingtalkData")
 local Common = require("DingtalkPagesCommon")
 local Colors = require("Utils.Colors")
 
+local TextUtils = require("Utils.TextUtils")
+local truncate = TextUtils.truncate
 local C = Common.C
 
 local M = {}
@@ -44,9 +46,10 @@ function M.Create(title, onBack)
                     flexGrow = 1, flexShrink = 1,
                     flexDirection = "column",
                     gap = 3,
+                    overflow = "hidden",
                     children = {
-                        UI.Label { text = person.name, fontSize = 14, fontColor = { 235, 235, 240, 255 } },
-                        UI.Label { text = person.role, fontSize = 11, fontColor = { 120, 120, 135, 255 }, maxLines = 1 },
+                        UI.Label { text = truncate(person.name, 12), fontSize = 14, fontColor = { 235, 235, 240, 255 }, maxLines = 1 },
+                        UI.Label { text = truncate(person.role, 18), fontSize = 11, fontColor = { 120, 120, 135, 255 }, maxLines = 1 },
                     },
                 },
             },

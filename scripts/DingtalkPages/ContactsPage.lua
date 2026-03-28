@@ -50,6 +50,7 @@ function M.Create(onNavigate)
                     fontColor = { 230, 230, 235, 255 },
                     flexShrink = 1,
                     maxLines = 1,
+                    overflow = "hidden",
                     flexGrow = 1,
                     pointerEvents = "none",
                 },
@@ -200,9 +201,10 @@ function M.Create(onNavigate)
                         gap = 2,
                         flexGrow = 1,
                         flexShrink = 1,
+                        overflow = "hidden",
                         children = {
-                            UI.Label { text = "陈星河", fontSize = 15, fontColor = { 240, 240, 245, 255 }, fontWeight = "bold" },
-                            UI.Label { text = "星火市明德职业技术学校", fontSize = 10, fontColor = { 140, 140, 150, 255 }, maxLines = 1 },
+                            UI.Label { text = "陈老师", fontSize = 15, fontColor = { 240, 240, 245, 255 }, fontWeight = "bold", maxLines = 1 },
+                            UI.Label { text = "星火市明德职业技术学校", fontSize = 10, fontColor = { 140, 140, 150, 255 }, maxLines = 1, overflow = "hidden" },
                         },
                     },
                     UI.Panel {
@@ -263,6 +265,7 @@ function M.Create(onNavigate)
                                                 flexGrow = 1, flexShrink = 1,
                                                 flexDirection = "column",
                                                 gap = 4,
+                                                overflow = "hidden",
                                                 children = {
                                                     UI.Label {
                                                         text = "星火市明德职业技术学校",
@@ -270,6 +273,7 @@ function M.Create(onNavigate)
                                                         fontColor = { 240, 240, 245, 255 },
                                                         fontWeight = "bold",
                                                         maxLines = 1,
+                                                        overflow = "hidden",
                                                     },
                                                     UI.Panel {
                                                         flexDirection = "row",

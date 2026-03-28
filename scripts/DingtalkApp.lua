@@ -7,6 +7,9 @@
 local UI = require("urhox-libs/UI")
 local DingtalkPages = require("DingtalkPages")
 local DingtalkData = require("DingtalkData")
+local GuideOverlay = require("UI.GuideOverlay")
+local TextUtils = require("Utils.TextUtils")
+local truncate = TextUtils.truncate
 
 local App = {}
 
@@ -30,6 +33,7 @@ local dtContentContainer_ = nil  -- 叮叮内容区容器
 local dtActiveTab_ = "msg"       -- 当前激活的底部 Tab
 local dtTabBarContainer_ = nil   -- 底部 Tab 栏容器
 local goHomeFn_ = nil            -- 返回主屏幕的回调
+local dtCurrentPage_ = "main"    -- 当前子页面："main"|"chat"|"calendar"|"todo"|"ding"|"search"
 
 -- ============================================================================
 -- 导航系统
@@ -38,6 +42,7 @@ local goHomeFn_ = nil            -- 返回主屏幕的回调
 --- 叮叮子页面导航
 local function navigateTo(page, chatData)
     if not dtContentContainer_ then return end
+    dtCurrentPage_ = page
     dtContentContainer_:ClearChildren()
 
     local backToMain = function() navigateTo("main") end
@@ -51,13 +56,20 @@ local function navigateTo(page, chatData)
     elseif page == "ding" then
         dtContentContainer_:AddChild(DingtalkPages.CreateDingPage(backToMain))
     elseif page == "chat" and chatData then
-        dtContentContainer_:AddChild(DingtalkPages.CreateChatPage(chatData.name, chatData.iconBg, backToMain))
+        -- 仅在班级群/家校群中传递公告回调
+        local announceFn = nil
+        if App.onPublishAnnouncement
+           and (chatData.name:find("班级群") or chatData.name:find("家校群")) then
+            announceFn = function() App._showAnnouncementModal() end
+        end
+        dtContentContainer_:AddChild(DingtalkPages.CreateChatPage(chatData.name, chatData.iconBg, backToMain, announceFn))
     end
 end
 
 --- 通讯录子页面导航
 local function contactsNavigateTo(title)
     if not dtContentContainer_ then return end
+    dtCurrentPage_ = "contact_detail"
     dtContentContainer_:ClearChildren()
     local backToContacts = function() App.switchTab("contacts") end
     dtContentContainer_:AddChild(DingtalkPages.CreateContactDetailPage(title, backToContacts))
@@ -66,6 +78,7 @@ end
 --- 搜索页面导航
 local function navigateToSearch()
     if not dtContentContainer_ then return end
+    dtCurrentPage_ = "search"
     dtContentContainer_:ClearChildren()
     local backToMain = function() App.switchTab("msg") end
 
@@ -76,7 +89,12 @@ local function navigateToSearch()
         local backToSearch = function() navigateToSearch() end
 
         if target == "chat" and data then
-            dtContentContainer_:AddChild(DingtalkPages.CreateChatPage(data.name, data.iconBg, backToSearch))
+            local announceFn = nil
+            if App.onPublishAnnouncement
+               and (data.name:find("班级群") or data.name:find("家校群")) then
+                announceFn = function() App._showAnnouncementModal() end
+            end
+            dtContentContainer_:AddChild(DingtalkPages.CreateChatPage(data.name, data.iconBg, backToSearch, announceFn))
         elseif target == "contact" and data then
             dtContentContainer_:AddChild(DingtalkPages.CreateContactDetailPage(data.group, backToSearch))
         elseif target == "todo" then
@@ -114,6 +132,7 @@ end
 --- 切换底部 Tab
 function App.switchTab(tabId)
     dtActiveTab_ = tabId
+    dtCurrentPage_ = "main"
     if not dtContentContainer_ then return end
     dtContentContainer_:ClearChildren()
 
@@ -273,7 +292,7 @@ end
 function App._createChatItem(chat)
     local nameChildren = {
         UI.Label {
-            text = chat.name,
+            text = truncate(chat.name, 12),
             fontSize = 12,
             fontColor = DT.text,
             maxLines = 1,
@@ -375,11 +394,10 @@ function App._createChatItem(chat)
                         },
                     },
                     UI.Label {
-                        text = chat.msg,
+                        text = truncate(chat.msg, 20),
                         fontSize = 10,
                         fontColor = DT.textSec,
                         maxLines = 1,
-                        overflow = "hidden",
                     },
                 },
             },
@@ -503,38 +521,6 @@ function App.Create(onGoHome, defaultChatName)
         dtTabBarContainer_,
     }
 
-    -- 关卡模式：添加"发布公告"浮动按钮
-    if App.onPublishAnnouncement then
-        mainChildren[#mainChildren + 1] = UI.Button {
-            position = "absolute",
-            bottom = 112,
-            right = 10,
-            width = 44,
-            height = 44,
-            backgroundColor = { 255, 140, 0, 240 },
-            hoverBackgroundColor = { 255, 160, 40, 255 },
-            pressedBackgroundColor = { 220, 120, 0, 255 },
-            borderRadius = 22,
-            justifyContent = "center",
-            alignItems = "center",
-            zIndex = 800,
-            boxShadow = {
-                { x = 0, y = 3, blur = 10, spread = 1, color = { 0, 0, 0, 120 } },
-            },
-            onClick = function(self)
-                App._showAnnouncementModal()
-            end,
-            children = {
-                UI.Label {
-                    text = "公告",
-                    fontSize = 9,
-                    fontColor = { 255, 255, 255, 255 },
-                    pointerEvents = "none",
-                },
-            },
-        }
-    end
-
     return UI.Panel {
         width = "100%",
         height = "100%",
@@ -588,19 +574,42 @@ function App._showAnnouncementModal()
         end,
     }
 
+    -- 构建 Modal 内容子元素
+    local modalContentChildren = {
+        UI.Label {
+            text = "请输入要发布给全班家长的通知内容：",
+            fontSize = 10,
+            fontColor = { 140, 140, 160, 255 },
+        },
+    }
+
+    -- 首次发公告 → 添加引导提示卡片
+    if not GuideOverlay.HasShown("guide_announcement") then
+        GuideOverlay.MarkShown("guide_announcement")
+        modalContentChildren[#modalContentChildren + 1] = UI.Panel {
+            width = "100%",
+            backgroundColor = { 255, 245, 220, 255 },
+            borderRadius = 8,
+            paddingVertical = 10,
+            paddingHorizontal = 12,
+            children = {
+                UI.Label {
+                    text = "提示：公告内容需要你手动输入，从聊天消息中提取关键信息，编写通知内容即可。",
+                    fontSize = 10,
+                    fontColor = { 120, 90, 20, 255 },
+                },
+            },
+        }
+    end
+
+    modalContentChildren[#modalContentChildren + 1] = announcementInput
+
     announcementModal_:AddContent(UI.Panel {
         width = "100%",
         flexDirection = "column",
         gap = 10,
         padding = 12,
-        children = {
-            UI.Label {
-                text = "请输入要发布给全班家长的通知内容：",
-                fontSize = 10,
-                fontColor = { 140, 140, 160, 255 },
-            },
-            announcementInput,
-        },
+        children = modalContentChildren,
     })
 
     announcementModal_:SetFooter(UI.Panel {
@@ -660,8 +669,8 @@ end
 --- 检查并刷新聊天列表（由 main.lua HandleUpdate 调度）
 function App.RefreshChatListIfDirty()
     if DingtalkData.ConsumeChatListDirty() then
-        -- 仅在消息 Tab 可见时重建
-        if dtActiveTab_ == "msg" and dtContentContainer_ then
+        -- 仅在消息列表主页时才重建（子页面如聊天页不受影响）
+        if dtActiveTab_ == "msg" and dtCurrentPage_ == "main" and dtContentContainer_ then
             dtContentContainer_:ClearChildren()
             dtContentContainer_:AddChild(App._createMainContent())
         end

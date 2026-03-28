@@ -9,6 +9,8 @@ local ChatEventManager = require("ChatEventManager")
 local ChatBubble = require("Utils.ChatBubble")
 local ReplyManager = require("Level.ReplyManager")
 local LevelManager = require("Level.LevelManager")
+local GuideOverlay = require("UI.GuideOverlay")
+local SoundManager = require("Utils.SoundManager")
 local Colors = require("Utils.Colors")
 local WechatCommon = require("WechatPagesCommon")
 
@@ -243,12 +245,20 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
     }
     wxTypingIndicator_ = typingPanel
 
+    -- 查找头像图片
+    local chatAvatarImg = WechatData.GetAvatarImage(chatName)
+    local selfAvatarImg = WechatData.SELF_AVATAR
+    local bubbleOpts = {
+        avatarImage = chatAvatarImg,
+        selfAvatarImage = selfAvatarImg,
+    }
+
     --- 添加一条消息气泡到列表
     local function addBubble(msg)
         if msg.msgType == "system" then
             msgListPanel:AddChild(ChatBubble.CreateSystemNotice(msg.text))
         else
-            msgListPanel:AddChild(ChatBubble.Create(msg, chatIconBg, ChatBubble.WECHAT))
+            msgListPanel:AddChild(ChatBubble.Create(msg, chatIconBg, ChatBubble.WECHAT, bubbleOpts))
         end
         wxPendingScroll_ = scrollView
     end
@@ -331,6 +341,9 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
         local trimmed = text:match("^%s*(.-)%s*$")
         if trimmed == "" then return end
 
+        -- 播放发送音效
+        SoundManager.PlaySFX(SoundManager.SFX.MSG_SENT, 0.5)
+
         -- 保存到数据层（AddMessage 会自动触发监听器 → addBubble，同时更新预览）
         WechatData.AddMessage(chatName, "我", trimmed)
 
@@ -360,19 +373,9 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
         end
     end
 
-    -- + 号按钮（输入为空时显示）
-    local plusBtn = UI.Panel {
-        width = 28, height = 28,
-        justifyContent = "center",
-        alignItems = "center",
-        children = {
-            UI.Label { text = "+", fontSize = 18, fontColor = WX.textSec },
-        },
-    }
-
-    -- 发送按钮（初始隐藏，输入时显示）
+    -- 发送按钮（常驻显示）
     local sendBtn = UI.Button {
-        width = 44, height = 28,
+        width = 50, height = 30,
         backgroundColor = WX.green,
         hoverBackgroundColor = { 6, 170, 85, 255 },
         pressedBackgroundColor = { 5, 150, 75, 255 },
@@ -380,7 +383,6 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
         text = "发送",
         textColor = WX.white,
         fontSize = 11,
-        visible = false,
         onClick = function(self)
             if inputValue == "" then return end
             sendMessage(inputValue)
@@ -388,8 +390,6 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
             if M._activeTextField then
                 M._activeTextField:SetValue("")
             end
-            self:SetVisible(false)
-            plusBtn:SetVisible(true)
         end,
     }
 
@@ -408,17 +408,12 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
         paddingHorizontal = 10,
         onChange = function(self, value)
             inputValue = value
-            local hasText = (value ~= "")
-            sendBtn:SetVisible(hasText)
-            plusBtn:SetVisible(not hasText)
         end,
         onSubmit = function(self, value)
             if value == "" then return end
             sendMessage(value)
             inputValue = ""
             self:SetValue("")
-            sendBtn:SetVisible(false)
-            plusBtn:SetVisible(true)
         end,
     }
 
@@ -448,7 +443,7 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
         },
     }
 
-    return UI.Panel {
+    local chatPanel = UI.Panel {
         width = "100%",
         height = "100%",
         backgroundColor = WX.chatBg,
@@ -488,34 +483,24 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
                     children = {
                         textField,
                         UI.Button {
-                            width = 36, height = 28,
+                            width = 40, height = 30,
                             backgroundColor = { 230, 230, 230, 255 },
                             hoverBackgroundColor = { 210, 210, 210, 255 },
                             pressedBackgroundColor = { 190, 190, 190, 255 },
                             borderRadius = 4,
                             text = "粘贴",
                             textColor = WX.text,
-                            fontSize = 9,
+                            fontSize = 10,
                             onClick = function(self)
                                 local clip = ui:GetClipboardText()
                                 if clip and clip ~= "" and textField then
                                     local cur = textField:GetValue() or ""
                                     textField:SetValue(cur .. clip)
                                     inputValue = cur .. clip
-                                    sendBtn:SetVisible(true)
-                                    plusBtn:SetVisible(false)
+                                    
                                 end
                             end,
                         },
-                        UI.Panel {
-                            width = 28, height = 28,
-                            justifyContent = "center",
-                            alignItems = "center",
-                            children = {
-                                UI.Label { text = ":)", fontSize = 14, fontColor = WX.textSec },
-                            },
-                        },
-                        plusBtn,
                         sendBtn,
                     },
                 }
@@ -525,6 +510,21 @@ function M.CreateChatPage(chatName, chatIconBg, onBack)
             wxCopyToastLabel_,
         },
     }
+
+    -- 首次进入有待回复消息的聊天 → 显示自动回复引导
+    if wxReplyHintText_ then
+        GuideOverlay.ShowOnce("guide_auto_reply", {
+            title = "自动回复",
+            lines = {
+                "这条消息需要你回复",
+                "随意敲几下键盘即可自动填充",
+                "填充完成后点击「发送」",
+            },
+            parent = chatPanel,
+        })
+    end
+
+    return chatPanel
 end
 
 
@@ -536,6 +536,7 @@ end
 function M.CreateContactDetailPage(contact, onBack, onSendMessage)
     local colorSeed = string.byte(contact.initial, 1) or 65
     local avatarBg = Colors.GetAvatarColor(contact.initial)
+    local detailAvatarImg = WechatData.GetAvatarImage(contact.name)
 
     local infoRows = {}
     if contact.remark and contact.remark ~= "" then
@@ -551,6 +552,28 @@ function M.CreateContactDetailPage(contact, onBack, onSendMessage)
             children = {
                 UI.Label { text = "备注", fontSize = 12, fontColor = WX.textSec },
                 UI.Label { text = contact.remark, fontSize = 12, fontColor = WX.text },
+            },
+        }
+    end
+
+    -- 联系人详情头像
+    local detailAvatar
+    if detailAvatarImg then
+        detailAvatar = UI.Panel {
+            width = 56, height = 56,
+            backgroundImage = detailAvatarImg,
+            backgroundFit = "cover",
+            borderRadius = 8,
+        }
+    else
+        detailAvatar = UI.Panel {
+            width = 56, height = 56,
+            backgroundColor = avatarBg,
+            borderRadius = 8,
+            justifyContent = "center",
+            alignItems = "center",
+            children = {
+                UI.Label { text = contact.initial, fontSize = 22, fontColor = { 255, 255, 255, 255 } },
             },
         }
     end
@@ -581,16 +604,7 @@ function M.CreateContactDetailPage(contact, onBack, onSendMessage)
                                 alignItems = "center",
                                 gap = 14,
                                 children = {
-                                    UI.Panel {
-                                        width = 56, height = 56,
-                                        backgroundColor = avatarBg,
-                                        borderRadius = 8,
-                                        justifyContent = "center",
-                                        alignItems = "center",
-                                        children = {
-                                            UI.Label { text = contact.initial, fontSize = 22, fontColor = { 255, 255, 255, 255 } },
-                                        },
-                                    },
+                                    detailAvatar,
                                     UI.Panel {
                                         flexGrow = 1, flexShrink = 1,
                                         flexDirection = "column",

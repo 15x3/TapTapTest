@@ -5,6 +5,7 @@
 -- ============================================================================
 
 local UI = require("urhox-libs/UI")
+local SoundManager = require("Utils.SoundManager")
 
 local ContextMenu = {}
 
@@ -49,6 +50,9 @@ function ContextMenu.Show(items, x, y)
         print("[ContextMenu] 警告: 未设置 mountParent，无法显示菜单")
         return
     end
+
+    SoundManager.PlaySFX(SoundManager.SFX.CONTEXT_MENU, 0.5)
+    print(string.format("[ContextMenu] Show at (%.0f, %.0f) | items=%d", x, y, #items))
 
     -- 构建菜单项
     local menuChildren = {}

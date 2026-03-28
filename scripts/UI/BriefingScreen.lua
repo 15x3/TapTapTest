@@ -126,7 +126,7 @@ function BriefingScreen.Create(levelData, onStart)
                 marginBottom = 16,
                 children = {
                     UI.Label {
-                        text = "任务简报",
+                        text = "情景说明",
                         fontSize = 12,
                         fontColor = COLORS.ACCENT,
                         marginBottom = 8,
@@ -151,7 +151,7 @@ function BriefingScreen.Create(levelData, onStart)
                 marginBottom = 28,
                 children = {
                     UI.Label {
-                        text = "关卡目标",
+                        text = "目标",
                         fontSize = 12,
                         fontColor = COLORS.ACCENT,
                         marginBottom = 8,

@@ -28,6 +28,8 @@ local ReplyManager = require("Level.ReplyManager")
 local FeedbackManager = require("Level.FeedbackManager")
 local SettlementReport = require("Level.SettlementReport")
 local ContextMenu = require("UI.ContextMenu")
+local GuideOverlay = require("UI.GuideOverlay")
+local SoundManager = require("Utils.SoundManager")
 local ChatBubble = require("Utils.ChatBubble")
 
 -- ============================================================================
@@ -69,7 +71,7 @@ local csvCheckTimer_ = 0       -- 检查计时器
 
 -- 关卡模式
 local levelMode_ = true        -- true=关卡模式, false=旧叙事模式
-local countdownLabel_ = nil     -- 状态栏倒计时 Label（关卡模式专用）
+
 
 -- 手机配置
 local PHONE = {
@@ -139,8 +141,10 @@ function Start()
     ScheduleApp.Invalidate()
     EventScheduler.Clear()
     CSVParser.ResetTracking()
+    GuideOverlay.Reset()
 
     GameTime.Init()
+    SoundManager.Init()
     InitUI()
     CreateUI()
     SubscribeToEvents()
@@ -150,6 +154,9 @@ function Start()
         InitLevelManager()
         LevelManager.StartLevel("level1")
     end
+
+    -- 播放主 BGM
+    SoundManager.PlayBGM(SoundManager.BGM.GAMEPLAY, 0.4)
 
     print("=== Pixel Phone Simulator Started ===")
 end
@@ -196,6 +203,7 @@ end
 ---@param chatName string|nil 可选，自动打开指定聊天
 function OpenApp(appId, chatName)
     if not screenContainer_ then return end
+    SoundManager.PlaySFX(SoundManager.SFX.APP_OPEN, 0.45)
     currentApp_ = appId
     screenContainer_:ClearChildren()
 
@@ -230,13 +238,14 @@ end
 --- 返回主屏幕
 function GoHome()
     if not screenContainer_ then return end
+    SoundManager.PlaySFX(SoundManager.SFX.BACK_CLOSE, 0.5)
     currentApp_ = nil
     screenContainer_:ClearChildren()
     screenContainer_:AddChild(CreateHomeContent())
 
     local titleLabel = uiRoot_:FindById("statusTitle")
     if titleLabel then
-        titleLabel:SetText("手机界面")
+        titleLabel:SetText("主页")
     end
 
     -- 同步状态栏时间（确保从应用返回时显示最新时间）
@@ -269,12 +278,25 @@ function CreateUI()
 
     UI.SetRoot(uiRoot_)
 
-    -- 桌面便签控件
+    -- 计算屏幕逻辑尺寸，用于定位桌面控件
+    local dpr = graphics:GetDPR()
+    local logW = graphics:GetWidth() / dpr
+    local logH = graphics:GetHeight() / dpr
+    -- 手机居中，手机壳总宽约 400，备忘录放左侧，时钟放右侧
+    local phoneCaseW = PHONE.WIDTH + 20  -- CASE.PAD_SIDE*2
+    local leftArea  = (logW - phoneCaseW) / 2  -- 手机左侧可用空间
+    local rightStart = logW - leftArea         -- 右侧区域起始 x
+
+    -- 桌面便签控件（手机左侧）
+    local stickyNoteW = 130
+    local stickyNoteX = math.max(8, leftArea - stickyNoteW - 16)
+    local stickyNoteY = logH * 0.18
+
     local stickyNote = DeskWidget.Create({
-        x = 16,
-        y = 60,
-        width = 100,
-        height = 80,
+        x = stickyNoteX,
+        y = stickyNoteY,
+        width = stickyNoteW,
+        height = 105,
         backgroundColor = { 255, 240, 130, 230 },
         borderRadius = 4,
         borderWidth = 1,
@@ -288,18 +310,18 @@ function CreateUI()
         children = {
             UI.Label {
                 text = "备忘录",
-                fontSize = 11,
+                fontSize = 13,
                 fontColor = { 120, 100, 40, 255 },
-                marginTop = 6,
-                marginLeft = 8,
+                marginTop = 8,
+                marginLeft = 10,
                 pointerEvents = "none",
             },
             UI.Label {
-                text = "记得交作业!",
-                fontSize = 10,
+                text = "群聊回复自动档\n班级公告手动输\n单击气泡可复制\n重要消息别漏回",
+                fontSize = 11,
                 fontColor = { 80, 70, 30, 255 },
-                marginTop = 4,
-                marginLeft = 8,
+                marginTop = 5,
+                marginLeft = 10,
                 pointerEvents = "none",
             },
         },
@@ -349,9 +371,18 @@ function CreateDeskClock()
     local weekdays = { "SUN", "MON", "TUE", "WED", "THU", "FRI", "SAT" }
     local dateStr = string.format("%02d-%02d  %s", t.month, t.day, weekdays[t.wday])
 
+    -- 时钟放在手机右侧（独立计算屏幕尺寸）
+    local clkDpr = graphics:GetDPR()
+    local clkLogW = graphics:GetWidth() / clkDpr
+    local clkLogH = graphics:GetHeight() / clkDpr
+    local clkPhoneCaseW = PHONE.WIDTH + 20
+    local clkRightStart = clkLogW - (clkLogW - clkPhoneCaseW) / 2
+    local clockX = math.min(clkRightStart + 16, clkLogW - CW - 8)
+    local clockY = clkLogH * 0.15
+
     local deskClock = DeskWidget.Create({
-        x = 16,
-        y = 180,
+        x = clockX,
+        y = clockY,
         width = CW,
         height = CH,
         -- 外壳：白色像素风圆角矩形（模拟实物闹钟外壳）
@@ -601,7 +632,7 @@ function CreateStatusBar()
         children = {
             UI.Label {
                 id = "statusTitle",
-                text = "手机界面",
+                text = "主页",
                 fontSize = 12,
                 fontColor = COLORS.TEXT_WHITE,
             },
@@ -610,17 +641,7 @@ function CreateStatusBar()
                 alignItems = "center",
                 gap = 8,
                 children = {
-                    -- 关卡倒计时（仅关卡模式显示）
-                    (function()
-                        countdownLabel_ = UI.Label {
-                            id = "countdownLabel",
-                            text = "",
-                            fontSize = 10,
-                            fontColor = { 255, 100, 100, 255 },
-                            display = levelMode_ and "flex" or "none",
-                        }
-                        return countdownLabel_
-                    end)(),
+                    
                     (function()
                         timeLabel_ = UI.Label {
                             id = "timeLabel",
@@ -856,25 +877,15 @@ function InitLevelManager()
             screenContainer_:ClearChildren()
             screenContainer_:AddChild(panel)
 
-            -- 隐藏倒计时
-            if countdownLabel_ then
-                countdownLabel_:SetStyle({ display = "none" })
-            end
-
             print("[main] 显示简报画面")
         end,
 
         --- 简报结束，恢复手机主界面
         onStartPlaying = function()
             if not screenContainer_ then return end
+            SoundManager.PlaySFX(SoundManager.SFX.SCHOOL_BELL, 0.6)
             screenContainer_:ClearChildren()
             screenContainer_:AddChild(CreateHomeContent())
-
-            -- 显示倒计时
-            if countdownLabel_ then
-                countdownLabel_:SetStyle({ display = "flex" })
-                countdownLabel_:SetText(LevelTimer.GetFormattedRemaining())
-            end
 
             -- 同步状态栏时间
             GameTime.ConsumeDirty()
@@ -895,6 +906,7 @@ function InitLevelManager()
                         end
                     end,
                     onForwardSuccess = function(msg, targetChat)
+                        SoundManager.PlaySFX(SoundManager.SFX.FORWARD_OK, 0.6)
                         local elapsed = LevelTimer.GetElapsed()
                         FeedbackManager.OnCorrectForward(msg.chat, msg.chainId, elapsed)
                         print(string.format("[main] 转发成功: %s (chain:%s) → %s", msg.chat, msg.chainId or "?", targetChat.name))
@@ -945,6 +957,7 @@ function InitLevelManager()
 
                 -- 设置 DingtalkApp 公告发布回调
                 DingtalkApp.onPublishAnnouncement = function(text)
+                    SoundManager.PlaySFX(SoundManager.SFX.ANNOUNCE_OK, 0.6)
                     local elapsed = LevelTimer.GetElapsed()
                     AnnouncementManager.Publish(text, elapsed)
                     -- 将公告内容投递到所有家长群（作为班主任发的消息）
@@ -957,36 +970,16 @@ function InitLevelManager()
                             end
                         end
                     end
+                    -- 触发公告成功反馈（家长回复"收到"）
+                    FeedbackManager.OnCorrectAnnouncement(elapsed)
+
                     print(string.format("[main] 公告已发布: %s", string.sub(text, 1, 40)))
                 end
             end
 
-            -- 设置 ContextMenu 的挂载容器
-            ContextMenu.SetMountParent(phoneFrame_)
-
-            -- 注册 ChatBubble 上下文菜单回调
-            ChatBubble.SetOnContextMenu(function(msg, x, y)
-                ContextMenu.Show({
-                    {
-                        label = "转发",
-                        onClick = function()
-                            ShowForwardTargetSelector(msg)
-                        end,
-                    },
-                    { type = "divider" },
-                    {
-                        label = "复制",
-                        onClick = function()
-                            if msg.text and msg.text ~= "" then
-                                ui:SetClipboardText(msg.text)
-                                if ChatBubble._onCopied then
-                                    ChatBubble._onCopied(msg.text)
-                                end
-                            end
-                        end,
-                    },
-                }, x, y)
-            end)
+            -- [已禁用] 转发功能已移除，上下文菜单不再注册
+            -- ContextMenu.SetMountParent(phoneFrame_)
+            -- ChatBubble.SetOnContextMenu(...)
 
             print("[main] 进入游戏状态，手机界面已恢复")
         end,
@@ -1056,20 +1049,18 @@ function InitLevelManager()
             screenContainer_:ClearChildren()
             screenContainer_:AddChild(panel)
 
-            -- 隐藏倒计时
-            if countdownLabel_ then
-                countdownLabel_:SetStyle({ display = "none" })
-            end
-
-            -- 清理上下文菜单
-            ContextMenu.Close()
-            ChatBubble.SetOnContextMenu(nil)
+            -- [已禁用] 转发功能已移除
+            -- ContextMenu.Close()
+            -- ChatBubble.SetOnContextMenu(nil)
 
             -- 清理公告、回复、反馈管理器
             DingtalkApp.onPublishAnnouncement = nil
             AnnouncementManager.Reset()
             ReplyManager.Reset()
             FeedbackManager.Reset()
+
+            -- 切换到结算 BGM
+            SoundManager.PlayBGM(SoundManager.BGM.SETTLEMENT, 0.4)
 
             print("[main] 显示结算画面")
         end,
@@ -1080,14 +1071,9 @@ function InitLevelManager()
             screenContainer_:ClearChildren()
             screenContainer_:AddChild(CreateHomeContent())
 
-            -- 隐藏倒计时
-            if countdownLabel_ then
-                countdownLabel_:SetStyle({ display = "none" })
-            end
-
-            -- 清理转发系统
-            ForwardManager.Reset()
-            ChatBubble.SetOnContextMenu(nil)
+            -- [已禁用] 转发功能已移除
+            -- ForwardManager.Reset()
+            -- ChatBubble.SetOnContextMenu(nil)
 
             -- 清理公告、回复、反馈管理器
             DingtalkApp.onPublishAnnouncement = nil
@@ -1422,6 +1408,7 @@ local function showNotifBanner(ev)
     }
 
     phoneFrame_:AddChild(notifBanner_)
+    SoundManager.PlaySFX(SoundManager.SFX.MSG_RECEIVED, 0.6)
     notifTimer_ = NOTIF_DURATION
     print(string.format("[通知] 显示横幅: %s - %s", appName, ev.chatName))
 end
@@ -1504,16 +1491,7 @@ function HandleUpdate(eventType, eventData)
             FeedbackManager.Update(elapsed)
         end
 
-        -- 更新倒计时标签（仅 playing 状态）
-        if LevelManager.IsPlaying() and countdownLabel_ then
-            countdownLabel_:SetText(LevelTimer.GetFormattedRemaining())
-            -- 最后60秒变红闪烁效果
-            local remain = LevelTimer.GetRemaining()
-            if remain <= 60 then
-                local alpha = math.floor(180 + 75 * math.abs(math.sin(os.clock() * 3)))
-                countdownLabel_:SetStyle({ fontColor = { 255, 60, 60, alpha } })
-            end
-        end
+
     end
 
     -- 桌面电子时钟秒级更新（独立于分钟检测）
@@ -1544,12 +1522,10 @@ function HandleUpdate(eventType, eventData)
     end
     processNotifQueue()
 
-    -- CSV 热重载检测（每 CSV_CHECK_INTERVAL 秒检查一次）
-    csvCheckTimer_ = csvCheckTimer_ + dt
-    if csvCheckTimer_ >= CSV_CHECK_INTERVAL then
-        csvCheckTimer_ = 0
-        CheckCSVReload()
-    end
+    -- CSV 热重载已禁用
+    -- 原因：Invalidate() 会清空 runtimeMessages_ 和 messageListeners_，
+    -- 导致关卡中已收发的消息丢失、聊天页监听断开。
+    -- 构建后 Preview 会自动重新加载整个页面，无需额外热重载。
 end
 
 -- ============================================================================
@@ -1598,12 +1574,14 @@ function CheckCSVReload()
         print("[HotReload]   课表数据已重载")
     end
 
-    -- 刷新当前显示的 UI
-    if currentApp_ then
-        OpenApp(currentApp_)
-    else
-        GoHome()
+    -- 软刷新：仅标记聊天列表脏，由 Update 中的 RefreshChatListIfDirty 自然重建列表
+    -- 不调用 OpenApp/GoHome，避免破坏当前页面导航状态（如正在聊天页就不会被踢回列表）
+    if dtChanged then
+        DingtalkData.SetChatListDirty()
+    end
+    if wxChanged then
+        WechatData.SetChatListDirty()
     end
 
-    print("[HotReload] CSV 重载完成")
+    print("[HotReload] CSV 重载完成（软刷新，保留当前页面）")
 end

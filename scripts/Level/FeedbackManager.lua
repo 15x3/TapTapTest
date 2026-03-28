@@ -152,6 +152,13 @@ function FeedbackManager.OnWrongTargetForward(sourceChat, chainId, elapsedSec)
     FeedbackManager._queueAction("on_wrong_target:forward:" .. sourceChat, elapsedSec)
 end
 
+--- 正确发布公告时调用
+---@param elapsedSec number 当前关卡已流逝秒数
+function FeedbackManager.OnCorrectAnnouncement(elapsedSec)
+    if not inited_ then return end
+    FeedbackManager._queueAction("on_correct:announce", elapsedSec)
+end
+
 --- 正确回复时调用
 ---@param chatName string 回复的聊天名
 ---@param elapsedSec number 当前关卡已流逝秒数

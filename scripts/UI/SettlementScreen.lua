@@ -5,6 +5,7 @@
 -- ============================================================================
 
 local UI = require("urhox-libs/UI")
+local SoundManager = require("Utils.SoundManager")
 
 local SettlementScreen = {}
 
@@ -39,6 +40,9 @@ local RESULT_STYLE = {
 ---@param onContinue function 点击"返回"按钮的回调
 ---@return table UI.Panel
 function SettlementScreen.Create(levelData, reportData, onContinue)
+    -- 播放分数揭晓音效
+    SoundManager.PlaySFX(SoundManager.SFX.SCORE_REVEAL, 0.6)
+
     local config = levelData.config
 
     -- 构建内容列表

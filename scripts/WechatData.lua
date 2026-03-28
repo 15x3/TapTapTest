@@ -9,6 +9,28 @@ local EventScheduler = require "Utils.EventScheduler"
 
 local Data = {}
 
+-- ============================================================================
+-- 头像图片映射（聊天名 → 图片路径）
+-- ============================================================================
+
+---@type table<string, string>
+Data.AVATAR_IMAGES = {
+    ["七(3)班家长群"] = "image/avatar_wx_parents.png",
+    ["七(3)班同学群"] = "image/avatar_wx_students.png",
+    ["王爸爸"]       = "image/avatar_wx_wang_dad.png",
+    ["小明（班长）"]  = "image/avatar_wx_xiaoming.png",
+}
+
+--- 自己（陈老师）的头像
+Data.SELF_AVATAR = "image/avatar_wx_teacher.png"
+
+--- 获取聊天或联系人的头像图片路径（不存在则返回 nil）
+---@param name string
+---@return string|nil
+function Data.GetAvatarImage(name)
+    return Data.AVATAR_IMAGES[name]
+end
+
 -- 便捷别名
 local loadCSV = function(path) return CSVParser.Load(path, "[WechatData]") end
 local resolveColor = Colors.Resolve
@@ -355,6 +377,11 @@ function Data.UpdateChatPreview(chatName, lastMsg)
             return
         end
     end
+end
+
+--- 外部强制标记聊天列表为脏（热重载用）
+function Data.SetChatListDirty()
+    chatListDirty_ = true
 end
 
 --- 检查并消费聊天列表脏标记

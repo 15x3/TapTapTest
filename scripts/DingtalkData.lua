@@ -573,6 +573,11 @@ function Data.UpdateChatPreview(chatName, lastMsg)
     end
 end
 
+--- 外部强制标记聊天列表为脏（热重载用）
+function Data.SetChatListDirty()
+    chatListDirty_ = true
+end
+
 --- 检查并消费聊天列表脏标记
 ---@return boolean 是否有更新
 function Data.ConsumeChatListDirty()
